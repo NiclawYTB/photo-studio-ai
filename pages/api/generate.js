@@ -1,5 +1,6 @@
 import Replicate from 'replicate';
 import Stripe from 'stripe';
+import { buildPrompt } from '../../lib/promptOptions';
 
 const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -11,45 +12,41 @@ export const config = {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { sessionId, image } = req.body;
+  const { sessionId, image, selections } = req.body;
 
   if (!sessionId || !image) {
     return res.status(400).json({ error: 'sessionId et image requis' });
   }
 
-  // Verifie que le paiement est bien effectue
+  // Vérifie que le paiement est bien effectué.
   try {
     const session = await stripe.checkout.sessions.retrieve(sessionId);
     if (session.payment_status !== 'paid') {
-      return res.status(403).json({ error: 'Paiement non complete' });
+      return res.status(403).json({ error: 'Paiement non complété' });
     }
   } catch (err) {
     return res.status(403).json({ error: 'Session invalide' });
   }
 
-  const prompt =
-    'Transform this photo into a studio product photo for resale listing, ' +
-    'white background, black display stand, slightly distant framing, ' +
-    'clean professional lighting, sharp details, commercial photography style';
+  // Construit le prompt côté serveur à partir des IDs envoyés.
+  // buildPrompt ignore tout ID inconnu et tombe sur les defaults,
+  // donc impossible d'injecter un prompt arbitraire depuis le client.
+  const prompt = buildPrompt(selections || {});
 
-  // Lance 3 predictions en parallele
+  // 1 SEULE prédiction par paiement (règle absolue).
   try {
-    const predictions = await Promise.all(
-      [0].map(() =>
-        replicate.predictions.create({
-          model: 'black-forest-labs/flux-kontext-pro',
-          input: {
-            prompt,
-            input_image: image,
-            output_format: 'jpg',
-            output_quality: 90,
-          },
-        })
-      )
-    );
+    const prediction = await replicate.predictions.create({
+      model: 'black-forest-labs/flux-kontext-pro',
+      input: {
+        prompt,
+        input_image: image,
+        output_format: 'jpg',
+        output_quality: 90,
+      },
+    });
 
     res.json({
-      predictions: predictions.map((p) => ({ id: p.id, status: p.status })),
+      prediction: { id: prediction.id, status: prediction.status },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
