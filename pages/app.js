@@ -1,7 +1,16 @@
 import { useState, useRef } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { OPTIONS } from '../lib/promptOptions';
+import {
+  SCENES,
+  PRODUCT_TYPES,
+  SUPPORTS,
+  LIGHTINGS,
+  PREMIUM_STAGING,
+  findSceneForBackground,
+} from '../lib/promptOptions';
+
+const DEFAULT_BACKGROUND = 'white';
 
 export default function AppPage() {
   const [image, setImage] = useState(null);
@@ -11,11 +20,16 @@ export default function AppPage() {
   const inputRef = useRef();
 
   const [selections, setSelections] = useState({
-    productType: OPTIONS.productType.defaultId,
-    background:  OPTIONS.background.defaultId,
-    support:     OPTIONS.support.defaultId,
-    lighting:    OPTIONS.lighting.defaultId,
+    productType: PRODUCT_TYPES.defaultId,
+    background:  DEFAULT_BACKGROUND,
+    support:     SUPPORTS.defaultId,
+    lighting:    LIGHTINGS.defaultId,
   });
+
+  // Onglet de scène actif (Studio / Tapis / ...) — déduit du fond sélectionné par défaut.
+  const [activeScene, setActiveScene] = useState(
+    findSceneForBackground(selections.background)
+  );
 
   const handleFile = (file) => {
     if (!file) return;
@@ -32,8 +46,12 @@ export default function AppPage() {
     handleFile(e.dataTransfer.files[0]);
   };
 
+  const selectBackground = (id) => {
+    setSelections((p) => ({ ...p, background: id }));
+  };
+
   const selectOption = (category, id) => {
-    setSelections((prev) => ({ ...prev, [category]: id }));
+    setSelections((p) => ({ ...p, [category]: id }));
   };
 
   const handlePay = async () => {
@@ -58,6 +76,8 @@ export default function AppPage() {
       setLoading(false);
     }
   };
+
+  const activeSceneData = SCENES[activeScene];
 
   return (
     <>
@@ -132,9 +152,9 @@ export default function AppPage() {
             </header>
 
             {/* Type de produit */}
-            <OptionGroup label={OPTIONS.productType.label} category="productType">
+            <OptionGroup label={PRODUCT_TYPES.label}>
               <div className="chips">
-                {OPTIONS.productType.choices.map((c) => (
+                {PRODUCT_TYPES.choices.map((c) => (
                   <Chip
                     key={c.id}
                     selected={selections.productType === c.id}
@@ -146,27 +166,70 @@ export default function AppPage() {
               </div>
             </OptionGroup>
 
-            {/* Fond */}
-            <OptionGroup label={OPTIONS.background.label} category="background">
-              <div className="swatches">
-                {OPTIONS.background.choices.map((c) => (
+            {/* Style de génération — onglets de scènes */}
+            <OptionGroup label="Style de génération" sub="Fond, éclairage et ombre adaptés automatiquement à chaque matière">
+              <div className="scene-tabs">
+                {Object.values(SCENES).map((s) => (
                   <button
-                    key={c.id}
-                    className={`swatch ${selections.background === c.id ? 'swatch-on' : ''}`}
-                    onClick={() => selectOption('background', c.id)}
-                    title={c.label}
+                    key={s.id}
+                    className={`scene-tab ${activeScene === s.id ? 'scene-tab-on' : ''} ${s.locked ? 'scene-tab-locked' : ''}`}
+                    onClick={() => !s.locked && setActiveScene(s.id)}
+                    disabled={s.locked}
+                    title={s.locked ? s.teaser : ''}
                   >
-                    <span className="swatch-color" style={{ background: c.swatch }} />
-                    <span className="swatch-label">{c.label}</span>
+                    {s.label}
+                    {s.locked && <span className="lock-mini">🔒</span>}
                   </button>
+                ))}
+              </div>
+
+              {/* Contenu de l'onglet actif */}
+              {activeSceneData.locked ? (
+                <div className="locked-block">
+                  <p className="locked-text">{activeSceneData.teaser}</p>
+                </div>
+              ) : (
+                Object.values(activeSceneData.groups).map((group) => (
+                  <div key={group.label} className="scene-group">
+                    <span className="scene-group-label">{group.label}</span>
+                    <div className="swatches">
+                      {group.choices.map((c) => (
+                        <button
+                          key={c.id}
+                          className={`swatch ${selections.background === c.id ? 'swatch-on' : ''}`}
+                          onClick={() => selectBackground(c.id)}
+                          title={c.label}
+                        >
+                          <span className="swatch-color" style={{ background: c.swatch }} />
+                          <span className="swatch-label">{c.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </OptionGroup>
+
+            {/* Mise en scène premium (verrouillée) */}
+            <OptionGroup label="Mise en scène premium" sub="Bientôt disponible">
+              <div className="premium-grid">
+                {PREMIUM_STAGING.map((s) => (
+                  <div key={s.id} className="premium-card">
+                    <div className="premium-head">
+                      <span className="premium-label">{s.label}</span>
+                      <span className="premium-tag">{s.tag}</span>
+                    </div>
+                    <span className="premium-desc">{s.desc}</span>
+                    <span className="premium-lock">🔒</span>
+                  </div>
                 ))}
               </div>
             </OptionGroup>
 
             {/* Support */}
-            <OptionGroup label={OPTIONS.support.label} category="support">
+            <OptionGroup label={SUPPORTS.label}>
               <div className="chips">
-                {OPTIONS.support.choices.map((c) => (
+                {SUPPORTS.choices.map((c) => (
                   <Chip
                     key={c.id}
                     selected={selections.support === c.id}
@@ -179,9 +242,9 @@ export default function AppPage() {
             </OptionGroup>
 
             {/* Éclairage */}
-            <OptionGroup label={OPTIONS.lighting.label} category="lighting">
+            <OptionGroup label={LIGHTINGS.label}>
               <div className="chips">
-                {OPTIONS.lighting.choices.map((c) => (
+                {LIGHTINGS.choices.map((c) => (
                   <Chip
                     key={c.id}
                     selected={selections.lighting === c.id}
@@ -318,20 +381,26 @@ export default function AppPage() {
       `}</style>
 
       <style jsx global>{`
-        /* Styles globaux pour les sous-composants OptionGroup, Chip */
-        .opt-group {
-          margin-top: 24px;
-        }
+        /* OptionGroup */
+        .opt-group { margin-top: 28px; }
         .opt-label {
           font-family: var(--font-mono);
           font-size: 10px;
           color: var(--ink-faint);
           letter-spacing: 1.8px;
           text-transform: uppercase;
-          margin-bottom: 12px;
           display: block;
         }
+        .opt-sub {
+          font-size: 12px;
+          color: var(--ink-faint);
+          margin-top: 4px;
+          margin-bottom: 12px;
+          line-height: 1.5;
+        }
+        .opt-label-only { margin-bottom: 12px; }
 
+        /* Chips */
         .chips {
           display: flex;
           flex-wrap: wrap;
@@ -369,9 +438,66 @@ export default function AppPage() {
           font-size: 14px;
         }
 
+        /* Scene tabs */
+        .scene-tabs {
+          display: flex;
+          gap: 4px;
+          padding: 4px;
+          background: var(--bg-soft);
+          border: 1px solid var(--border);
+          border-radius: var(--r);
+          margin-bottom: 20px;
+        }
+        .scene-tab {
+          flex: 1;
+          padding: 8px 12px;
+          background: transparent;
+          border: 1px solid transparent;
+          border-radius: var(--r-sm);
+          font-size: 13px;
+          color: var(--ink-muted);
+          font-family: inherit;
+          transition: all 0.15s;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+        }
+        .scene-tab:hover:not(.scene-tab-locked):not(.scene-tab-on) {
+          color: var(--ink);
+          background: var(--bg-card-hover);
+        }
+        .scene-tab-on {
+          background: var(--ink);
+          color: var(--bg);
+          font-weight: 500;
+        }
+        .scene-tab-locked {
+          opacity: 0.4;
+          cursor: not-allowed;
+        }
+        .lock-mini {
+          font-size: 10px;
+          opacity: 0.7;
+        }
+
+        /* Groupes à l'intérieur d'une scène */
+        .scene-group { margin-bottom: 20px; }
+        .scene-group:last-child { margin-bottom: 0; }
+        .scene-group-label {
+          font-family: var(--font-mono);
+          font-size: 10px;
+          color: var(--accent);
+          letter-spacing: 1.4px;
+          text-transform: uppercase;
+          margin-bottom: 10px;
+          display: block;
+        }
+
+        /* Swatches */
         .swatches {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+          grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
           gap: 6px;
         }
         .swatch {
@@ -393,6 +519,7 @@ export default function AppPage() {
         .swatch-on {
           border-color: var(--accent);
           background: var(--bg-card-hover);
+          box-shadow: 0 0 0 1px var(--border-accent);
         }
         .swatch-color {
           width: 32px;
@@ -412,6 +539,74 @@ export default function AppPage() {
         }
         .swatch-on .swatch-label { color: var(--accent); }
 
+        /* Bloc verrouillé (matières nobles) */
+        .locked-block {
+          padding: 24px;
+          background: var(--bg-soft);
+          border: 1px dashed var(--border);
+          border-radius: var(--r);
+          text-align: center;
+        }
+        .locked-text {
+          font-size: 13px;
+          color: var(--ink-faint);
+          font-family: var(--font-mono);
+          letter-spacing: 0.3px;
+        }
+
+        /* Premium staging */
+        .premium-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 6px;
+        }
+        @media (max-width: 720px) {
+          .premium-grid { grid-template-columns: 1fr; }
+        }
+        .premium-card {
+          position: relative;
+          padding: 12px 14px;
+          background: var(--bg-soft);
+          border: 1px solid var(--border);
+          border-radius: var(--r);
+          opacity: 0.55;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .premium-head {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .premium-label {
+          font-size: 13px;
+          color: var(--ink);
+          font-weight: 500;
+        }
+        .premium-tag {
+          font-family: var(--font-mono);
+          font-size: 9px;
+          color: var(--accent);
+          background: var(--accent-soft);
+          padding: 2px 6px;
+          border-radius: 3px;
+          letter-spacing: 0.6px;
+        }
+        .premium-desc {
+          font-size: 11px;
+          color: var(--ink-faint);
+          line-height: 1.4;
+        }
+        .premium-lock {
+          position: absolute;
+          top: 12px;
+          right: 12px;
+          font-size: 11px;
+          opacity: 0.6;
+        }
+
+        /* Erreur + paiement */
         .error {
           color: var(--danger);
           font-size: 13px;
@@ -421,7 +616,6 @@ export default function AppPage() {
           border-radius: var(--r);
           border: 1px solid rgba(225, 91, 91, 0.2);
         }
-
         .pay-block {
           margin-top: 32px;
           padding-top: 24px;
@@ -460,10 +654,11 @@ export default function AppPage() {
 
 // ===== Sous-composants =====
 
-function OptionGroup({ label, children }) {
+function OptionGroup({ label, sub, children }) {
   return (
     <div className="opt-group">
-      <span className="opt-label">{label}</span>
+      <span className={`opt-label ${!sub ? 'opt-label-only' : ''}`}>{label}</span>
+      {sub && <p className="opt-sub">{sub}</p>}
       {children}
     </div>
   );
