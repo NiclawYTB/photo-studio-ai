@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { OPTIONS } from '../lib/promptOptions';
 
 export default function Home() {
   const [image, setImage] = useState(null);
@@ -6,6 +7,14 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const inputRef = useRef();
+
+  // Sélections du user — par défaut, on prend le defaultId de chaque catégorie.
+  const [selections, setSelections] = useState({
+    productType: OPTIONS.productType.defaultId,
+    background:  OPTIONS.background.defaultId,
+    support:     OPTIONS.support.defaultId,
+    lighting:    OPTIONS.lighting.defaultId,
+  });
 
   const handleFile = (file) => {
     if (!file) return;
@@ -22,14 +31,18 @@ export default function Home() {
     handleFile(e.dataTransfer.files[0]);
   };
 
+  const selectOption = (category, id) => {
+    setSelections((prev) => ({ ...prev, [category]: id }));
+  };
+
   const handlePay = async () => {
     if (!image) return;
     setLoading(true);
     setError('');
 
     try {
-      // Sauvegarde l'image dans le localStorage pour la recuperer apres paiement
       localStorage.setItem('pending_image', image);
+      localStorage.setItem('pending_selections', JSON.stringify(selections));
 
       const res = await fetch('/api/create-checkout', { method: 'POST' });
       const data = await res.json();
@@ -51,9 +64,10 @@ export default function Home() {
         <h1 style={styles.title}>Photo Studio AI</h1>
         <p style={styles.subtitle}>
           Transforme ta photo en photo produit studio professionnelle.<br />
-          <strong>3 images generees pour 1€.</strong>
+          <strong>1 image générée pour 1€.</strong>
         </p>
 
+        {/* Upload */}
         <div
           style={{ ...styles.dropzone, ...(preview ? styles.dropzoneWithImage : {}) }}
           onClick={() => inputRef.current.click()}
@@ -88,6 +102,77 @@ export default function Home() {
           </button>
         )}
 
+        {/* Customisation */}
+        <Section label={OPTIONS.productType.label}>
+          <div style={styles.chipGrid}>
+            {OPTIONS.productType.choices.map((c) => (
+              <Chip
+                key={c.id}
+                selected={selections.productType === c.id}
+                onClick={() => selectOption('productType', c.id)}
+              >
+                <span style={styles.chipIcon}>{c.icon}</span>
+                {c.label}
+              </Chip>
+            ))}
+          </div>
+        </Section>
+
+        <Section label={OPTIONS.background.label}>
+          <div style={styles.swatchGrid}>
+            {OPTIONS.background.choices.map((c) => {
+              const selected = selections.background === c.id;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => selectOption('background', c.id)}
+                  title={c.label}
+                  style={{
+                    ...styles.swatch,
+                    ...(selected ? styles.swatchSelected : {}),
+                  }}
+                >
+                  <span
+                    style={{
+                      ...styles.swatchColor,
+                      background: c.swatch,
+                    }}
+                  />
+                  <span style={styles.swatchLabel}>{c.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </Section>
+
+        <Section label={OPTIONS.support.label}>
+          <div style={styles.chipGrid}>
+            {OPTIONS.support.choices.map((c) => (
+              <Chip
+                key={c.id}
+                selected={selections.support === c.id}
+                onClick={() => selectOption('support', c.id)}
+              >
+                {c.label}
+              </Chip>
+            ))}
+          </div>
+        </Section>
+
+        <Section label={OPTIONS.lighting.label}>
+          <div style={styles.chipGrid}>
+            {OPTIONS.lighting.choices.map((c) => (
+              <Chip
+                key={c.id}
+                selected={selections.lighting === c.id}
+                onClick={() => selectOption('lighting', c.id)}
+              >
+                {c.label}
+              </Chip>
+            ))}
+          </div>
+        </Section>
+
         {error && <p style={styles.error}>{error}</p>}
 
         <button
@@ -95,16 +180,43 @@ export default function Home() {
           onClick={handlePay}
           disabled={!image || loading}
         >
-          {loading ? 'Redirection...' : '💳 Payer 1€ et generer 3 photos'}
+          {loading ? 'Redirection...' : '💳 Payer 1€ et générer'}
         </button>
 
         <p style={styles.footer}>
-          Paiement securise par Stripe • Fond blanc • Support noir • Eclairage pro
+          Paiement sécurisé par Stripe • 1 image générée par paiement
         </p>
       </div>
     </div>
   );
 }
+
+// ----- Composants internes -----
+
+function Section({ label, children }) {
+  return (
+    <div style={styles.section}>
+      <h3 style={styles.sectionLabel}>{label}</h3>
+      {children}
+    </div>
+  );
+}
+
+function Chip({ selected, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        ...styles.chip,
+        ...(selected ? styles.chipSelected : {}),
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ----- Styles -----
 
 const styles = {
   page: {
@@ -119,8 +231,8 @@ const styles = {
   card: {
     background: '#fff',
     borderRadius: '16px',
-    padding: '40px',
-    maxWidth: '480px',
+    padding: '32px',
+    maxWidth: '520px',
     width: '100%',
     boxSizing: 'border-box',
     boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
@@ -136,7 +248,7 @@ const styles = {
     fontSize: '15px',
     color: '#666',
     textAlign: 'center',
-    margin: '0 0 28px',
+    margin: '0 0 24px',
     lineHeight: '1.6',
   },
   dropzone: {
@@ -146,7 +258,7 @@ const styles = {
     textAlign: 'center',
     cursor: 'pointer',
     transition: 'border-color 0.2s',
-    marginBottom: '16px',
+    marginBottom: '12px',
   },
   dropzoneWithImage: {
     padding: '12px',
@@ -154,16 +266,18 @@ const styles = {
   },
   preview: {
     maxWidth: '100%',
-    maxHeight: '280px',
+    maxHeight: '240px',
     borderRadius: '8px',
     objectFit: 'contain',
+    display: 'block',
+    margin: '0 auto',
   },
   uploadIcon: {
-    fontSize: '48px',
-    marginBottom: '12px',
+    fontSize: '40px',
+    marginBottom: '8px',
   },
   dropText: {
-    fontSize: '16px',
+    fontSize: '15px',
     color: '#333',
     margin: '0 0 4px',
   },
@@ -178,15 +292,98 @@ const styles = {
     color: '#888',
     fontSize: '13px',
     cursor: 'pointer',
-    marginBottom: '16px',
+    marginBottom: '8px',
     textDecoration: 'underline',
     padding: 0,
   },
+
+  // Sections de customisation
+  section: {
+    marginTop: '22px',
+  },
+  sectionLabel: {
+    fontSize: '11px',
+    fontWeight: '700',
+    color: '#666',
+    margin: '0 0 10px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.8px',
+  },
+
+  // Chips (productType, support, lighting)
+  chipGrid: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '6px',
+  },
+  chip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '8px 12px',
+    background: '#f5f5f5',
+    border: '1.5px solid transparent',
+    borderRadius: '8px',
+    fontSize: '13px',
+    color: '#333',
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+    fontWeight: '500',
+    fontFamily: 'inherit',
+  },
+  chipSelected: {
+    background: '#111',
+    color: '#fff',
+    borderColor: '#111',
+  },
+  chipIcon: {
+    marginRight: '6px',
+    fontSize: '14px',
+  },
+
+  // Swatches (fonds)
+  swatchGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))',
+    gap: '4px',
+  },
+  swatch: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 4px',
+    background: 'none',
+    border: '1.5px solid transparent',
+    borderRadius: '10px',
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+    fontFamily: 'inherit',
+  },
+  swatchSelected: {
+    borderColor: '#111',
+    background: '#f9f9f9',
+  },
+  swatchColor: {
+    width: '36px',
+    height: '36px',
+    borderRadius: '50%',
+    border: '1px solid rgba(0,0,0,0.1)',
+    display: 'block',
+    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.05)',
+  },
+  swatchLabel: {
+    fontSize: '11px',
+    color: '#555',
+    textAlign: 'center',
+    lineHeight: '1.2',
+  },
+
+  // Erreur + paiement
   error: {
     color: '#e53e3e',
     fontSize: '14px',
     textAlign: 'center',
-    marginBottom: '12px',
+    margin: '20px 0 0',
   },
   payBtn: {
     width: '100%',
@@ -198,8 +395,10 @@ const styles = {
     fontSize: '16px',
     fontWeight: '600',
     cursor: 'pointer',
-    marginBottom: '16px',
+    marginTop: '24px',
+    marginBottom: '12px',
     transition: 'opacity 0.2s',
+    fontFamily: 'inherit',
   },
   payBtnDisabled: {
     opacity: 0.4,
