@@ -35,7 +35,7 @@ export default async function handler(req, res) {
   // Lance 3 predictions en parallele
   try {
     const predictions = await Promise.all(
-      [0, 1, 2].map(() =>
+      [0].map(() =>
         replicate.predictions.create({
           model: 'black-forest-labs/flux-kontext-pro',
           input: {
