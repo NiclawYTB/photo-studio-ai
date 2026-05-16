@@ -1,596 +1,322 @@
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
-import { useEffect } from 'react';
+import { describeSelections } from '../lib/promptOptions';
 
-export default function Home() {
-  // Animation reveal au scroll
+export default function Success() {
+  const router = useRouter();
+  const { session_id } = router.query;
+
+  const [step, setStep] = useState('init');
+  const [imageUrl, setImageUrl] = useState(null);
+  const [progress, setProgress] = useState(0);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [summary, setSummary] = useState('');
+
   useEffect(() => {
-    const els = document.querySelectorAll('.reveal');
-    const io = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((e) => {
-          if (e.isIntersecting) {
-            e.target.classList.add('in');
-            io.unobserve(e.target);
-          }
-        });
-      },
-      { threshold: 0.12 }
-    );
-    els.forEach((el) => io.observe(el));
-    return () => io.disconnect();
-  }, []);
+    if (!session_id) return;
+    startGeneration();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session_id]);
+
+  const startGeneration = async () => {
+    const image = localStorage.getItem('pending_image');
+    const selectionsRaw = localStorage.getItem('pending_selections');
+    const selections = selectionsRaw ? safeParse(selectionsRaw) : {};
+
+    if (!image) {
+      setErrorMsg("Image introuvable. Retourne à l'accueil et réessaie.");
+      setStep('error');
+      return;
+    }
+
+    setSummary(describeSelections(selections));
+    setStep('generating');
+
+    try {
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: session_id, image, selections }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur génération');
+
+      localStorage.removeItem('pending_image');
+      localStorage.removeItem('pending_selections');
+
+      setStep('polling');
+      pollResult(data.prediction.id);
+    } catch (err) {
+      setErrorMsg(err.message);
+      setStep('error');
+    }
+  };
+
+  const pollResult = async (id) => {
+    let attempts = 0;
+    const maxAttempts = 40;
+
+    const poll = async () => {
+      attempts++;
+      setProgress(Math.min(Math.round((attempts / maxAttempts) * 100), 95));
+
+      try {
+        const res = await fetch(`/api/status?ids=${id}`);
+        const data = await res.json();
+        const pred = data.predictions[0];
+
+        if (pred.status === 'succeeded') {
+          const url = Array.isArray(pred.output) ? pred.output[0] : pred.output;
+          setImageUrl(url);
+          setProgress(100);
+          setStep('done');
+          return;
+        }
+
+        if (pred.status === 'failed') {
+          throw new Error('La génération a échoué. Contacte le support.');
+        }
+
+        if (attempts < maxAttempts) {
+          setTimeout(poll, 3000);
+        } else {
+          throw new Error("Timeout — l'image prend trop de temps.");
+        }
+      } catch (err) {
+        setErrorMsg(err.message);
+        setStep('error');
+      }
+    };
+
+    setTimeout(poll, 3000);
+  };
+
+  const downloadImage = async () => {
+    if (!imageUrl) return;
+    const res = await fetch(imageUrl);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `photo-studio-${Date.now()}.jpg`;
+    a.click();
+  };
 
   return (
     <>
       <Head>
-        <title>Photo Studio — Tes photos. En studio.</title>
-        <meta name="description" content="Transforme tes photos en packshots pros en 30 secondes. 1€ par photo, sans abonnement." />
-        <meta property="og:title" content="Photo Studio" />
-        <meta property="og:description" content="Tes photos. Sauf qu'on dirait qu'elles sortent d'un studio." />
+        <title>Génération · Photo Studio</title>
         <meta name="theme-color" content="#0B0A09" />
-        <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      {/* HERO BLOCK */}
-      <div className="hero-wrap">
-        <div className="halo" aria-hidden="true" />
+      <nav className="nav container">
+        <Link href="/" className="logo">
+          <span className="logo-mark" />
+          <span className="logo-text">Photo Studio</span>
+        </Link>
+        <span className="step-mono">
+          {step === 'done' ? 'étape 3 — livraison' : 'étape 2 — génération'}
+        </span>
+      </nav>
 
-        <nav className="nav container">
-          <Link href="/" className="logo">
-            <span className="logo-mark" />
-            <span className="logo-text">Photo Studio</span>
-          </Link>
-          <div className="nav-links">
-            <a href="#how">Comment ça marche</a>
-            <a href="#pricing">Tarifs</a>
-            <Link href="/app" className="nav-cta">Commencer →</Link>
-          </div>
-        </nav>
-
-        <header className="hero container">
-          <div className="hero-pill reveal">
-            <span className="dot" />
-            <span>Maintenant en bêta · 1€/photo</span>
-          </div>
-
-          <h1 className="hero-title reveal">
-            Tes photos.<br />
-            <span className="muted">Sauf qu'on dirait</span><br />
-            qu'elles sortent d'un studio.
-          </h1>
-
-          <p className="hero-sub reveal">
-            Glisse une photo de smartphone. Choisis un fond, un éclairage, un support.
-            Ton packshot est prêt en 30 secondes.
-          </p>
-
-          <div className="hero-ctas reveal">
-            <Link href="/app" className="btn btn-primary">Commencer →</Link>
-            <a href="#how" className="btn btn-ghost">Voir comment</a>
-          </div>
-
-          {/* Before / After */}
-          <div className="ba-grid reveal">
-            <div className="ba-card">
-              <div className="ba-head">
-                <span className="ba-label">01 — Source</span>
-                <span className="ba-dot dim" />
-              </div>
-              {/* Remplace par <img src="/demo-before.jpg" /> quand tu as une vraie image */}
-              <div className="ba-img ba-img-before">
-                <span className="ba-img-label">photo perso</span>
-              </div>
+      <main className="container success-main">
+        {/* INIT / GENERATING / POLLING */}
+        {(step === 'init' || step === 'generating' || step === 'polling') && (
+          <div className="state-panel">
+            <div className="spinner" />
+            <span className="state-mono">
+              {step === 'init' && 'initialisation…'}
+              {step === 'generating' && 'paiement confirmé · lancement génération'}
+              {step === 'polling' && `génération en cours · ${progress}%`}
+            </span>
+            <h1 className="state-title">L'IA travaille sur ta photo.</h1>
+            {summary && <p className="state-summary">{summary}</p>}
+            <div className="progress">
+              <div className="progress-fill" style={{ width: `${progress}%` }} />
             </div>
-            <div className="ba-card ba-card-after">
-              <div className="ba-head">
-                <span className="ba-label accent">02 — Studio</span>
-                <span className="ba-dot" />
-              </div>
-              {/* Remplace par <img src="/demo-after.jpg" /> quand tu as une vraie image */}
-              <div className="ba-img ba-img-after">
-                <span className="ba-img-label">packshot pro</span>
-              </div>
+            <p className="state-hint">Environ 15 à 30 secondes</p>
+          </div>
+        )}
+
+        {/* DONE */}
+        {step === 'done' && imageUrl && (
+          <div className="result-panel">
+            <div className="result-head">
+              <span className="state-mono done">terminé · ta photo est prête</span>
+              <h1 className="result-title">Voilà ton packshot.</h1>
+              {summary && <p className="result-summary">{summary}</p>}
+            </div>
+
+            <div className="result-img-frame">
+              <img src={imageUrl} alt="résultat" className="result-img" />
+            </div>
+
+            <div className="result-actions">
+              <button className="btn btn-primary btn-lg" onClick={downloadImage}>
+                ↓ Télécharger
+              </button>
+              <Link href="/app" className="btn btn-ghost btn-lg">
+                Générer une autre photo
+              </Link>
             </div>
           </div>
-        </header>
-      </div>
+        )}
 
-      {/* HOW IT WORKS */}
-      <section id="how" className="section">
-        <div className="container">
-          <div className="section-head reveal">
-            <span className="eyebrow">Comment ça marche</span>
-            <h2 className="section-title">Trois étapes. Trente secondes.</h2>
+        {/* ERROR */}
+        {step === 'error' && (
+          <div className="state-panel">
+            <span className="state-mono error">erreur</span>
+            <h1 className="state-title">Quelque chose a mal tourné.</h1>
+            <p className="error-msg">{errorMsg}</p>
+            <Link href="/app" className="btn btn-ghost btn-lg">
+              ← Retour à l'application
+            </Link>
           </div>
-
-          <div className="steps reveal">
-            {[
-              {
-                n: '01',
-                t: 'Upload',
-                d: "Glisse n'importe quelle photo de ton produit. Smartphone, scan, capture d'écran — tout passe.",
-              },
-              {
-                n: '02',
-                t: 'Personnalise',
-                d: "Choisis ton fond, ton éclairage, ton support. Plus de 1 000 combinaisons disponibles.",
-              },
-              {
-                n: '03',
-                t: 'Génère',
-                d: "L'IA reconstruit ta photo dans un vrai studio. Téléchargement immédiat, en haute définition.",
-              },
-            ].map((s) => (
-              <div key={s.n} className="step">
-                <span className="step-n">{s.n}</span>
-                <h3 className="step-t">{s.t}</h3>
-                <p className="step-d">{s.d}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* FOR WHO */}
-      <section className="section section-soft">
-        <div className="container">
-          <div className="section-head reveal">
-            <span className="eyebrow">Pour qui</span>
-            <h2 className="section-title">Pensé pour ceux qui vendent.</h2>
-          </div>
-
-          <ul className="who-list reveal">
-            <li><span className="who-dot" />Tu vends sur Vinted, Leboncoin, eBay.</li>
-            <li><span className="who-dot" />Tu débutes en e-commerce ou en dropshipping.</li>
-            <li><span className="who-dot" />Tu n'as pas le matos photo, ni le temps de monter un studio.</li>
-            <li><span className="who-dot" />Tu veux des photos qui se vendent — pas une appli compliquée.</li>
-          </ul>
-        </div>
-      </section>
-
-      {/* PRICING */}
-      <section id="pricing" className="section">
-        <div className="container">
-          <div className="section-head reveal">
-            <span className="eyebrow">Tarif</span>
-            <h2 className="section-title">Un prix. Une photo.</h2>
-          </div>
-
-          <div className="price-card reveal">
-            <div className="price-head">
-              <span className="price-mono">photo_studio.pricing</span>
-              <span className="price-dot" />
-            </div>
-            <div className="price-amount">
-              <span className="price-num">1</span>
-              <span className="price-currency">€</span>
-              <span className="price-per">/ photo générée</span>
-            </div>
-            <ul className="price-features">
-              <li>1 photo studio HD par paiement</li>
-              <li>Plus de 1 000 combinaisons de styles</li>
-              <li>Téléchargement immédiat, sans filigrane</li>
-              <li>Pas d'abonnement, pas d'inscription</li>
-              <li>Paiement sécurisé Stripe</li>
-            </ul>
-            <Link href="/app" className="btn btn-primary btn-block">Commencer →</Link>
-          </div>
-        </div>
-      </section>
-
-      {/* FINAL CTA */}
-      <section className="section">
-        <div className="container">
-          <div className="final-cta reveal">
-            <h2 className="final-title">Prêt à transformer tes photos ?</h2>
-            <p className="final-sub">Tu peux upload, configurer et payer en moins d'une minute.</p>
-            <Link href="/app" className="btn btn-primary btn-lg">Commencer maintenant →</Link>
-          </div>
-        </div>
-      </section>
-
-      <footer className="footer">
-        <div className="container footer-inner">
-          <div className="logo">
-            <span className="logo-mark" />
-            <span className="logo-text">Photo Studio</span>
-          </div>
-          <span className="footer-meta">© {new Date().getFullYear()} · Paiement sécurisé Stripe</span>
-        </div>
-      </footer>
+        )}
+      </main>
 
       <style jsx>{`
-        /* ==================== HERO ==================== */
-        .hero-wrap {
-          position: relative;
-          overflow: hidden;
-          background: var(--bg);
-        }
-
-        .halo {
-          position: absolute;
-          top: -180px;
-          left: 50%;
-          transform: translateX(-50%);
-          width: 800px;
-          height: 380px;
-          background: radial-gradient(ellipse at center, var(--accent-glow), transparent 65%);
-          pointer-events: none;
-          z-index: 0;
-        }
-
-        /* Nav */
         .nav {
-          position: relative;
-          z-index: 2;
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding-top: 24px;
-          padding-bottom: 24px;
-        }
-        .nav-links {
-          display: flex;
-          align-items: center;
-          gap: 28px;
-          font-size: 13px;
-          color: var(--ink-muted);
-        }
-        .nav-links a:hover { color: var(--ink); }
-        .nav-links :global(.nav-cta) {
-          background: var(--ink);
-          color: var(--bg);
-          padding: 8px 14px;
-          border-radius: var(--r);
-          font-weight: 500;
-          transition: background 0.15s;
-        }
-        .nav-links :global(.nav-cta:hover) {
-          background: var(--accent);
-        }
-
-        /* Hero content */
-        .hero {
-          position: relative;
-          z-index: 2;
-          padding-top: 80px;
-          padding-bottom: 120px;
-        }
-
-        .hero-pill {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          font-family: var(--font-mono);
-          font-size: 11px;
-          color: var(--ink-muted);
-          padding: 5px 12px;
-          border: 1px solid var(--border-strong);
-          border-radius: 999px;
-          margin-bottom: 36px;
-        }
-        .dot {
-          width: 6px;
-          height: 6px;
-          background: var(--accent);
-          border-radius: 50%;
-          animation: pulse 2.5s ease-in-out infinite;
-        }
-
-        .hero-title {
-          font-size: clamp(40px, 6vw, 64px);
-          line-height: 1.05;
-          font-weight: 600;
-          letter-spacing: -0.035em;
-          margin-bottom: 28px;
-          max-width: 18ch;
-        }
-        .muted { color: var(--ink-muted); font-weight: 400; }
-
-        .hero-sub {
-          font-size: 17px;
-          line-height: 1.55;
-          color: var(--ink-muted);
-          max-width: 50ch;
-          margin-bottom: 40px;
-        }
-
-        .hero-ctas {
-          display: flex;
-          gap: 12px;
-          align-items: center;
-          flex-wrap: wrap;
-          margin-bottom: 72px;
-        }
-
-        /* Before/After teaser */
-        .ba-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 14px;
-          max-width: 640px;
-        }
-        .ba-card {
-          background: var(--bg-card);
-          border: 1px solid var(--border);
-          border-radius: var(--r-md);
-          padding: 12px;
-        }
-        .ba-card-after { border-color: var(--border-accent); }
-
-        .ba-head {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 12px;
-        }
-        .ba-label {
-          font-family: var(--font-mono);
-          font-size: 10px;
-          color: var(--ink-faint);
-          text-transform: uppercase;
-          letter-spacing: 1.6px;
-        }
-        .ba-label.accent { color: var(--accent); }
-        .ba-dot {
-          width: 6px;
-          height: 6px;
-          background: var(--accent);
-          border-radius: 50%;
-        }
-        .ba-dot.dim { background: var(--ink-faint); }
-
-        .ba-img {
-          aspect-ratio: 4 / 3;
-          border-radius: var(--r-sm);
-          display: flex;
-          align-items: flex-end;
-          justify-content: center;
-          padding: 16px;
-        }
-        .ba-img-before {
-          background: linear-gradient(135deg, #2a2622 0%, #1a1714 100%);
-        }
-        .ba-img-after {
-          background: #FAFAF7;
-        }
-        .ba-img-label {
-          font-family: var(--font-mono);
-          font-size: 11px;
-          letter-spacing: 0.5px;
-        }
-        .ba-img-before .ba-img-label { color: var(--ink-faint); }
-        .ba-img-after .ba-img-label { color: var(--bg); font-weight: 500; }
-
-        @media (max-width: 720px) {
-          .hero { padding-top: 48px; padding-bottom: 80px; }
-          .nav-links a:not(.nav-cta) { display: none; }
-          .ba-grid { grid-template-columns: 1fr; }
-        }
-
-        /* ==================== SECTIONS ==================== */
-        :global(.section-soft) {
-          background: var(--bg-soft);
-          border-top: 1px solid var(--border);
+          padding-top: 20px;
+          padding-bottom: 20px;
           border-bottom: 1px solid var(--border);
         }
 
-        .section-head {
-          margin-bottom: 56px;
-          max-width: 640px;
-        }
-        .eyebrow {
-          display: inline-block;
-          font-family: var(--font-mono);
-          font-size: 11px;
-          color: var(--accent);
-          text-transform: uppercase;
-          letter-spacing: 1.8px;
-          margin-bottom: 16px;
-        }
-        .section-title {
-          font-size: clamp(28px, 4vw, 40px);
-          line-height: 1.1;
-          letter-spacing: -0.03em;
-          font-weight: 600;
+        .success-main {
+          padding-top: 80px;
+          padding-bottom: 80px;
+          min-height: calc(100vh - 80px);
         }
 
-        /* Steps */
-        .steps {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 16px;
-        }
-        .step {
+        /* ETAT (init/generating/polling/error) */
+        .state-panel {
+          max-width: 540px;
+          margin: 0 auto;
+          text-align: center;
+          padding: 48px 32px;
           background: var(--bg-card);
           border: 1px solid var(--border);
-          border-radius: var(--r-md);
-          padding: 24px;
-          transition: border-color 0.2s, transform 0.2s;
+          border-radius: var(--r-lg);
         }
-        .step:hover {
-          border-color: var(--border-strong);
-          transform: translateY(-2px);
+        .spinner {
+          width: 36px;
+          height: 36px;
+          border: 2px solid var(--border-strong);
+          border-top: 2px solid var(--accent);
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+          margin: 0 auto 28px;
         }
-        .step-n {
+        :global(.state-mono) {
           font-family: var(--font-mono);
           font-size: 11px;
-          color: var(--accent);
           letter-spacing: 1.6px;
+          text-transform: uppercase;
+          color: var(--accent);
           display: block;
-          margin-bottom: 14px;
+          margin-bottom: 16px;
         }
-        .step-t {
-          font-size: 18px;
+        :global(.state-mono.done) { color: var(--success); }
+        :global(.state-mono.error) { color: var(--danger); }
+        .state-title {
+          font-size: 26px;
           font-weight: 600;
-          margin-bottom: 8px;
-          letter-spacing: -0.01em;
+          letter-spacing: -0.02em;
+          margin-bottom: 12px;
         }
-        .step-d {
-          font-size: 14px;
+        .state-summary {
+          font-size: 13px;
           color: var(--ink-muted);
-          line-height: 1.6;
+          font-family: var(--font-mono);
+          letter-spacing: 0.3px;
+          margin-bottom: 28px;
+        }
+        .progress {
+          background: var(--bg-soft);
+          border-radius: 999px;
+          height: 4px;
+          overflow: hidden;
+          margin: 0 0 12px;
+          border: 1px solid var(--border);
+        }
+        .progress-fill {
+          background: var(--accent);
+          height: 100%;
+          border-radius: 999px;
+          transition: width 0.6s ease;
+        }
+        .state-hint {
+          font-size: 12px;
+          color: var(--ink-faint);
+          font-family: var(--font-mono);
+          letter-spacing: 0.3px;
+        }
+        .error-msg {
+          color: var(--danger);
+          font-size: 14px;
+          margin-bottom: 24px;
+        }
+
+        /* DONE */
+        .result-panel {
+          max-width: 720px;
+          margin: 0 auto;
+          text-align: center;
+        }
+        .result-head { margin-bottom: 36px; }
+        .result-title {
+          font-size: 36px;
+          font-weight: 600;
+          letter-spacing: -0.03em;
+          margin: 12px 0 8px;
+        }
+        .result-summary {
+          font-family: var(--font-mono);
+          font-size: 12px;
+          color: var(--ink-muted);
+          letter-spacing: 0.3px;
+        }
+
+        /* Le cadre clair fait ressortir la photo finale */
+        .result-img-frame {
+          background: #FAFAF7;
+          border-radius: var(--r-lg);
+          padding: 32px;
+          margin-bottom: 32px;
+          border: 1px solid var(--border-accent);
+          box-shadow: 0 0 80px var(--accent-soft);
+        }
+        .result-img {
+          width: 100%;
+          height: auto;
+          border-radius: var(--r-sm);
+          display: block;
+          margin: 0 auto;
+          max-width: 600px;
+        }
+
+        .result-actions {
+          display: flex;
+          gap: 12px;
+          justify-content: center;
+          flex-wrap: wrap;
         }
 
         @media (max-width: 720px) {
-          .steps { grid-template-columns: 1fr; }
-        }
-
-        /* For who */
-        .who-list {
-          list-style: none;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          max-width: 600px;
-        }
-        .who-list li {
-          display: flex;
-          align-items: flex-start;
-          gap: 14px;
-          font-size: 17px;
-          color: var(--ink);
-          line-height: 1.55;
-        }
-        .who-dot {
-          width: 6px;
-          height: 6px;
-          background: var(--accent);
-          border-radius: 50%;
-          margin-top: 11px;
-          flex-shrink: 0;
-        }
-
-        /* Pricing */
-        .price-card {
-          background: var(--bg-card);
-          border: 1px solid var(--border);
-          border-radius: var(--r-lg);
-          padding: 32px;
-          max-width: 480px;
-          margin: 0 auto;
-        }
-        .price-head {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 28px;
-        }
-        .price-mono {
-          font-family: var(--font-mono);
-          font-size: 11px;
-          color: var(--ink-faint);
-          letter-spacing: 1.4px;
-        }
-        .price-dot {
-          width: 6px;
-          height: 6px;
-          background: var(--accent);
-          border-radius: 50%;
-          animation: pulse 2.5s ease-in-out infinite;
-        }
-        .price-amount {
-          display: flex;
-          align-items: baseline;
-          gap: 6px;
-          margin-bottom: 28px;
-        }
-        .price-num {
-          font-size: 64px;
-          font-weight: 600;
-          letter-spacing: -0.04em;
-          line-height: 1;
-        }
-        .price-currency {
-          font-size: 28px;
-          color: var(--ink-muted);
-          font-weight: 500;
-        }
-        .price-per {
-          font-size: 14px;
-          color: var(--ink-muted);
-          margin-left: 8px;
-        }
-        .price-features {
-          list-style: none;
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-          margin-bottom: 28px;
-          border-top: 1px solid var(--border);
-          padding-top: 24px;
-        }
-        .price-features li {
-          font-size: 14px;
-          color: var(--ink-muted);
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-        .price-features li::before {
-          content: '✓';
-          color: var(--accent);
-          font-size: 13px;
-        }
-
-        /* Final CTA */
-        .final-cta {
-          text-align: center;
-          padding: 80px 32px;
-          background: var(--bg-card);
-          border: 1px solid var(--border);
-          border-radius: var(--r-lg);
-          position: relative;
-          overflow: hidden;
-        }
-        .final-cta::before {
-          content: '';
-          position: absolute;
-          top: -100px;
-          left: 50%;
-          transform: translateX(-50%);
-          width: 400px;
-          height: 200px;
-          background: radial-gradient(ellipse, var(--accent-soft), transparent 70%);
-          pointer-events: none;
-        }
-        .final-title {
-          font-size: clamp(28px, 4vw, 40px);
-          letter-spacing: -0.03em;
-          margin-bottom: 16px;
-          font-weight: 600;
-          position: relative;
-        }
-        .final-sub {
-          font-size: 16px;
-          color: var(--ink-muted);
-          margin-bottom: 32px;
-          position: relative;
-        }
-        .final-cta :global(.btn) {
-          position: relative;
-        }
-
-        /* Footer */
-        :global(.footer) {
-          border-top: 1px solid var(--border);
-          padding: 28px 0;
-        }
-        .footer-inner {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          flex-wrap: wrap;
-          gap: 12px;
-        }
-        .footer-meta {
-          font-family: var(--font-mono);
-          font-size: 11px;
-          color: var(--ink-faint);
-          letter-spacing: 0.5px;
+          .result-img-frame { padding: 16px; }
+          .result-title { font-size: 28px; }
+          .state-panel { padding: 36px 20px; }
         }
       `}</style>
     </>
   );
+}
+
+function safeParse(str) {
+  try { return JSON.parse(str); } catch { return {}; }
 }
