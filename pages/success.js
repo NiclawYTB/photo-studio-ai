@@ -1,51 +1,61 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
+import { describeSelections } from '../lib/promptOptions';
 
 export default function Success() {
   const router = useRouter();
   const { session_id } = router.query;
 
   const [step, setStep] = useState('init'); // init | generating | polling | done | error
-  const [images, setImages] = useState([]);
+  const [imageUrl, setImageUrl] = useState(null);
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
+  const [summary, setSummary] = useState('');
 
   useEffect(() => {
     if (!session_id) return;
     startGeneration();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session_id]);
 
   const startGeneration = async () => {
     const image = localStorage.getItem('pending_image');
+    const selectionsRaw = localStorage.getItem('pending_selections');
+    const selections = selectionsRaw ? safeParse(selectionsRaw) : {};
+
     if (!image) {
-      setErrorMsg("Image introuvable. Retourne a l'accueil et reessaie.");
+      setErrorMsg("Image introuvable. Retourne à l'accueil et réessaie.");
       setStep('error');
       return;
     }
 
+    setSummary(describeSelections(selections));
     setStep('generating');
 
     try {
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: session_id, image }),
+        body: JSON.stringify({ sessionId: session_id, image, selections }),
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erreur generation');
+      if (!res.ok) throw new Error(data.error || 'Erreur génération');
 
-      const ids = data.predictions.map((p) => p.id);
+      // On nettoie le localStorage une fois la génération lancée pour
+      // éviter qu'un refresh de la page success ne déclenche un appel inutile.
       localStorage.removeItem('pending_image');
+      localStorage.removeItem('pending_selections');
+
       setStep('polling');
-      pollResults(ids);
+      pollResult(data.prediction.id);
     } catch (err) {
       setErrorMsg(err.message);
       setStep('error');
     }
   };
 
-  const pollResults = async (ids) => {
+  const pollResult = async (id) => {
     let attempts = 0;
     const maxAttempts = 40;
 
@@ -54,29 +64,26 @@ export default function Success() {
       setProgress(Math.min(Math.round((attempts / maxAttempts) * 100), 95));
 
       try {
-        const res = await fetch(`/api/status?ids=${ids.join(',')}`);
+        const res = await fetch(`/api/status?ids=${id}`);
         const data = await res.json();
-        const preds = data.predictions;
+        const pred = data.predictions[0];
 
-        const done = preds.filter((p) => p.status === 'succeeded');
-        const failed = preds.filter((p) => p.status === 'failed');
-
-        if (done.length === ids.length) {
-          const urls = done.map((p) => (Array.isArray(p.output) ? p.output[0] : p.output));
-          setImages(urls);
+        if (pred.status === 'succeeded') {
+          const url = Array.isArray(pred.output) ? pred.output[0] : pred.output;
+          setImageUrl(url);
           setProgress(100);
           setStep('done');
           return;
         }
 
-        if (failed.length > 0) {
-          throw new Error('Une generation a echoue. Contacte le support.');
+        if (pred.status === 'failed') {
+          throw new Error('La génération a échoué. Contacte le support.');
         }
 
         if (attempts < maxAttempts) {
           setTimeout(poll, 3000);
         } else {
-          throw new Error('Timeout — les images prennent trop de temps.');
+          throw new Error("Timeout — l'image prend trop de temps.");
         }
       } catch (err) {
         setErrorMsg(err.message);
@@ -87,54 +94,56 @@ export default function Success() {
     setTimeout(poll, 3000);
   };
 
-  const downloadImage = async (url, index) => {
-    const res = await fetch(url);
+  const downloadImage = async () => {
+    if (!imageUrl) return;
+    const res = await fetch(imageUrl);
     const blob = await res.blob();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `photo-studio-${index + 1}.jpg`;
+    a.download = `photo-studio-${Date.now()}.jpg`;
     a.click();
   };
 
   return (
     <div style={styles.page}>
       <div style={styles.card}>
-        {step === 'init' && (
-          <p style={styles.info}>Chargement...</p>
-        )}
+        {step === 'init' && <p style={styles.info}>Chargement...</p>}
 
         {(step === 'generating' || step === 'polling') && (
           <div style={styles.center}>
             <div style={styles.spinner} />
-            <h2 style={styles.title}>Generation en cours...</h2>
+            <h2 style={styles.title}>Génération en cours...</h2>
             <p style={styles.subtitle}>
               {step === 'generating'
-                ? 'Paiement confirme ! Lancement des generations...'
-                : `Generation des 3 photos studio... ${progress}%`}
+                ? 'Paiement confirmé ! Lancement de la génération...'
+                : `Création de ta photo studio... ${progress}%`}
             </p>
+            {summary && <p style={styles.summary}>{summary}</p>}
             <div style={styles.progressBar}>
               <div style={{ ...styles.progressFill, width: `${progress}%` }} />
             </div>
-            <p style={styles.hint}>Cela prend environ 30 a 60 secondes</p>
+            <p style={styles.hint}>Environ 15 à 30 secondes</p>
           </div>
         )}
 
-        {step === 'done' && (
+        {step === 'done' && imageUrl && (
           <>
-            <h2 style={{ ...styles.title, color: '#22c55e' }}>Tes 3 photos sont pretes !</h2>
-            <p style={styles.subtitle}>Clique sur chaque photo pour la telecharger</p>
-            <div style={styles.grid}>
-              {images.map((url, i) => (
-                <div key={i} style={styles.imgWrapper}>
-                  <img src={url} alt={`photo ${i + 1}`} style={styles.img} />
-                  <button style={styles.dlBtn} onClick={() => downloadImage(url, i)}>
-                    Telecharger #{i + 1}
-                  </button>
-                </div>
-              ))}
+            <h2 style={{ ...styles.title, color: '#22c55e', textAlign: 'center' }}>
+              Ta photo est prête !
+            </h2>
+            {summary && (
+              <p style={{ ...styles.summary, textAlign: 'center', marginBottom: '20px' }}>
+                {summary}
+              </p>
+            )}
+            <div style={styles.imgWrapper}>
+              <img src={imageUrl} alt="résultat" style={styles.img} />
             </div>
+            <button style={styles.dlBtn} onClick={downloadImage}>
+              ⬇ Télécharger
+            </button>
             <button style={styles.backBtn} onClick={() => router.push('/')}>
-              Generer une autre photo
+              Générer une autre photo
             </button>
           </>
         )}
@@ -145,13 +154,17 @@ export default function Success() {
             <h2 style={styles.title}>Une erreur est survenue</h2>
             <p style={styles.errorMsg}>{errorMsg}</p>
             <button style={styles.backBtn} onClick={() => router.push('/')}>
-              Retour a l'accueil
+              Retour à l'accueil
             </button>
           </div>
         )}
       </div>
     </div>
   );
+}
+
+function safeParse(str) {
+  try { return JSON.parse(str); } catch { return {}; }
 }
 
 const styles = {
@@ -175,7 +188,13 @@ const styles = {
   },
   center: { textAlign: 'center' },
   title: { fontSize: '22px', fontWeight: '700', margin: '0 0 8px', color: '#111' },
-  subtitle: { fontSize: '15px', color: '#666', margin: '0 0 20px', lineHeight: '1.6' },
+  subtitle: { fontSize: '15px', color: '#666', margin: '0 0 12px', lineHeight: '1.6' },
+  summary: {
+    fontSize: '13px',
+    color: '#888',
+    margin: '0 0 16px',
+    fontStyle: 'italic',
+  },
   info: { textAlign: 'center', color: '#888' },
   spinner: {
     width: '48px',
@@ -200,18 +219,25 @@ const styles = {
     transition: 'width 0.5s ease',
   },
   hint: { fontSize: '13px', color: '#aaa' },
-  grid: { display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' },
-  imgWrapper: { borderRadius: '10px', overflow: 'hidden', border: '1px solid #eee' },
+  imgWrapper: {
+    borderRadius: '10px',
+    overflow: 'hidden',
+    border: '1px solid #eee',
+    marginBottom: '16px',
+  },
   img: { width: '100%', display: 'block' },
   dlBtn: {
     width: '100%',
-    padding: '10px',
+    padding: '14px',
     background: '#111',
     color: '#fff',
     border: 'none',
-    fontSize: '14px',
-    fontWeight: '500',
+    borderRadius: '10px',
+    fontSize: '15px',
+    fontWeight: '600',
     cursor: 'pointer',
+    marginBottom: '10px',
+    fontFamily: 'inherit',
   },
   backBtn: {
     width: '100%',
@@ -222,6 +248,7 @@ const styles = {
     fontSize: '15px',
     cursor: 'pointer',
     color: '#555',
+    fontFamily: 'inherit',
   },
   errorIcon: { fontSize: '48px', margin: '0 0 12px' },
   errorMsg: { color: '#e53e3e', fontSize: '14px', margin: '0 0 20px' },
