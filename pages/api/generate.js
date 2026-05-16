@@ -29,8 +29,6 @@ export default async function handler(req, res) {
   }
 
   // Construit le prompt côté serveur à partir des IDs envoyés.
-  // buildPrompt ignore tout ID inconnu et tombe sur les defaults,
-  // donc impossible d'injecter un prompt arbitraire depuis le client.
   const prompt = buildPrompt(selections || {});
 
   // 1 SEULE prédiction par paiement (règle absolue).
