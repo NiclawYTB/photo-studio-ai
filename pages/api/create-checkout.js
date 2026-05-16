@@ -13,15 +13,16 @@ export default async function handler(req, res) {
           currency: 'eur',
           product_data: {
             name: 'Photo Studio AI',
-            description: '3 photos produit studio generees par IA',
+            description: '1 photo produit studio générée par IA',
           },
           unit_amount: 100,
         },
         quantity: 1,
       }],
       mode: 'payment',
+      // Après paiement → success. Si annulation → retour sur /app (pas la landing).
       success_url: `${process.env.NEXT_PUBLIC_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.NEXT_PUBLIC_URL}`,
+      cancel_url: `${process.env.NEXT_PUBLIC_URL}/app`,
     });
 
     res.json({ url: session.url, sessionId: session.id });
