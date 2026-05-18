@@ -3,64 +3,44 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
 import { supabase } from '../lib/supabase';
-import {
-  SCENES,
-  PRODUCT_TYPES,
-  SUPPORTS,
-  LIGHTINGS,
-  PREMIUM_STAGING,
-  findSceneForBackground,
-} from '../lib/promptOptions';
-
-const DEFAULT_BACKGROUND = 'white';
+import { OPTIONS } from '../lib/promptOptions';
 
 export default function AppPage() {
   const router = useRouter();
-
-  // ─── État auth + crédits ──────────────────────────────
-  const [authReady, setAuthReady] = useState(false);
-  const [session, setSession] = useState(null);
-  const [credits, setCredits] = useState(null);
-
-  // ─── État appli (upload + options) ────────────────────
   const [image, setImage] = useState(null);
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const inputRef = useRef();
 
+  // Session + crédits
+  const [session, setSession] = useState(null);
+  const [credits, setCredits] = useState(0);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  // Sélections — null = pas sélectionné (le serveur prendra le défaut)
   const [selections, setSelections] = useState({
-    productType: PRODUCT_TYPES.defaultId,
-    background:  DEFAULT_BACKGROUND,
-    support:     SUPPORTS.defaultId,
-    lighting:    LIGHTINGS.defaultId,
+    productType: null,
+    background:  null,
+    support:     null,
+    lighting:    null,
   });
 
-  const [activeScene, setActiveScene] = useState(
-    findSceneForBackground(selections.background)
-  );
+  // Tab actif pour les fonds
+  const [bgTab, setBgTab] = useState('rug');
 
-  // ─── Auth check au montage ────────────────────────────
   useEffect(() => {
     (async () => {
-      const { data: { session: s } } = await supabase.auth.getSession();
-      if (!s) {
-        router.replace('/login');
-        return;
-      }
-      setSession(s);
-
-      // Récupérer le solde de crédits
-      const res = await fetch('/api/me', {
-        headers: { Authorization: `Bearer ${s.access_token}` },
-      });
-      const data = await res.json();
-      setCredits(data.credits ?? 0);
-      setAuthReady(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { router.push('/login'); return; }
+      setSession(session);
+      const res = await fetch('/api/me', { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const d = await res.json();
+      setCredits(d.credits || 0);
+      setAuthLoading(false);
     })();
   }, []);
 
-  // ─── Handlers ──────────────────────────────────────────
   const handleFile = (file) => {
     if (!file) return;
     const reader = new FileReader();
@@ -76,40 +56,28 @@ export default function AppPage() {
     handleFile(e.dataTransfer.files[0]);
   };
 
-  const selectBackground = (id) => {
-    setSelections((p) => ({ ...p, background: id }));
-  };
-
-  const selectOption = (category, id) => {
-    setSelections((p) => ({ ...p, [category]: id }));
+  // TOGGLE : si on reclique sur le choix actif, on le désélectionne (revient au défaut)
+  const toggleOption = (category, id) => {
+    setSelections((prev) => ({
+      ...prev,
+      [category]: prev[category] === id ? null : id,
+    }));
   };
 
   const handleGenerate = async () => {
-    if (!image || credits < 1) return;
-    setLoading(true);
-    setError('');
+    if (!image) return;
+    if (credits < 1) { router.push('/buy'); return; }
+    setLoading(true); setError('');
 
     try {
       const res = await fetch('/api/generate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({ image, selections }),
       });
       const data = await res.json();
-
-      if (!res.ok) {
-        if (res.status === 402) {
-          // Crédits insuffisants → redirection vers /buy
-          router.push('/buy');
-          return;
-        }
-        throw new Error(data.error || 'Erreur génération');
-      }
-
-      // Redirection vers la page de polling
+      if (!res.ok) throw new Error(data.error || 'Erreur génération');
+      setCredits(data.credits);
       router.push(`/success?id=${data.prediction.id}`);
     } catch (err) {
       setError(err.message);
@@ -117,8 +85,7 @@ export default function AppPage() {
     }
   };
 
-  // ─── Rendu ─────────────────────────────────────────────
-  if (!authReady) {
+  if (authLoading) {
     return (
       <div className="loading-page">
         <span className="loading-dot" />
@@ -130,15 +97,19 @@ export default function AppPage() {
     );
   }
 
-  const activeSceneData = SCENES[activeScene];
-  const canGenerate = image && credits >= 1 && !loading;
+  const activeCategories = OPTIONS.background.categories;
+  const bgChoices = OPTIONS.background.choices.filter((c) => c.category === bgTab);
+  const activeBgCat = activeCategories.find((c) => c.id === bgTab);
+
+  // Pour afficher les "défauts" dans l'UI quand rien n'est sélectionné
+  const defaultLabel = (cat) => {
+    const def = OPTIONS[cat].choices.find((c) => c.id === OPTIONS[cat].defaultId);
+    return def?.label || '';
+  };
 
   return (
     <>
-      <Head>
-        <title>Crée ta photo studio · Photo Studio</title>
-        <meta name="theme-color" content="#0B0A09" />
-      </Head>
+      <Head><title>Crée ta photo · Photo Studio</title></Head>
 
       <nav className="nav container">
         <Link href="/" className="logo">
@@ -146,16 +117,17 @@ export default function AppPage() {
           <span className="logo-text">Photo Studio</span>
         </Link>
         <div className="nav-right">
-          <Link href="/account" className="credits-pill" title="Mon studio">
+          <Link href="/gallery" className="step-mono nav-link">galerie</Link>
+          <Link href="/account" className="credits-pill">
             <span className="credits-num">{credits}</span>
-            <span className="credits-lbl">crédit{credits !== 1 ? 's' : ''}</span>
+            <span className="credits-lbl">crédit{credits > 1 ? 's' : ''}</span>
           </Link>
         </div>
       </nav>
 
       <main className="container app-main">
         <div className="app-grid">
-          {/* LEFT — Upload */}
+          {/* GAUCHE — Upload */}
           <section className="panel">
             <header className="panel-head">
               <span className="panel-num">01</span>
@@ -185,25 +157,16 @@ export default function AppPage() {
               )}
             </div>
 
-            <input
-              ref={inputRef}
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={(e) => handleFile(e.target.files[0])}
-            />
+            <input ref={inputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleFile(e.target.files[0])} />
 
             {preview && (
-              <button
-                className="change-btn"
-                onClick={() => { setPreview(null); setImage(null); }}
-              >
+              <button className="change-btn" onClick={() => { setPreview(null); setImage(null); }}>
                 ← Changer de photo
               </button>
             )}
           </section>
 
-          {/* RIGHT — Options + Generate */}
+          {/* DROITE — Configuration */}
           <section className="panel">
             <header className="panel-head">
               <span className="panel-num">02</span>
@@ -211,370 +174,229 @@ export default function AppPage() {
             </header>
 
             {/* Type de produit */}
-            <OptionGroup label={PRODUCT_TYPES.label}>
+            <OptionGroup label={OPTIONS.productType.label} defaultLabel={defaultLabel('productType')} selectedExists={!!selections.productType}>
               <div className="chips">
-                {PRODUCT_TYPES.choices.map((c) => (
-                  <Chip
+                {OPTIONS.productType.choices.map((c) => (
+                  <button
                     key={c.id}
-                    selected={selections.productType === c.id}
-                    onClick={() => selectOption('productType', c.id)}
+                    onClick={() => toggleOption('productType', c.id)}
+                    className={`chip ${selections.productType === c.id ? 'chip-on' : ''}`}
                   >
                     <span className="chip-icon">{c.icon}</span> {c.label}
-                  </Chip>
+                  </button>
                 ))}
               </div>
             </OptionGroup>
 
-            {/* Style de génération — onglets de scènes */}
-            <OptionGroup label="Style de génération" sub="Fond, éclairage et ombre adaptés automatiquement à chaque matière">
-              <div className="scene-tabs">
-                {Object.values(SCENES).map((s) => (
+            {/* Fond — avec tabs de catégories */}
+            <OptionGroup label={OPTIONS.background.label} defaultLabel={defaultLabel('background')} selectedExists={!!selections.background}>
+              <div className="bg-tabs">
+                {activeCategories.map((cat) => (
                   <button
-                    key={s.id}
-                    className={`scene-tab ${activeScene === s.id ? 'scene-tab-on' : ''} ${s.locked ? 'scene-tab-locked' : ''}`}
-                    onClick={() => !s.locked && setActiveScene(s.id)}
-                    disabled={s.locked}
-                    title={s.locked ? s.teaser : ''}
+                    key={cat.id}
+                    className={`bg-tab ${bgTab === cat.id ? 'bg-tab-on' : ''} ${!cat.active ? 'bg-tab-locked' : ''}`}
+                    onClick={() => cat.active && setBgTab(cat.id)}
+                    disabled={!cat.active}
                   >
-                    {s.label}
-                    {s.locked && <span className="lock-mini">🔒</span>}
+                    {cat.label}
+                    {cat.badge && <span className="bg-tab-badge">{cat.badge}</span>}
                   </button>
                 ))}
               </div>
 
-              {activeSceneData.locked ? (
-                <div className="locked-block">
-                  <p className="locked-text">{activeSceneData.teaser}</p>
+              {activeBgCat?.active ? (
+                <div className="swatches">
+                  {bgChoices.map((c) => (
+                    <button
+                      key={c.id}
+                      className={`swatch ${selections.background === c.id ? 'swatch-on' : ''}`}
+                      onClick={() => toggleOption('background', c.id)}
+                      title={c.label}
+                    >
+                      <span className="swatch-color" style={{ background: c.swatch }} />
+                      <span className="swatch-label">{c.label}</span>
+                    </button>
+                  ))}
                 </div>
               ) : (
-                Object.values(activeSceneData.groups).map((group) => (
-                  <div key={group.label} className="scene-group">
-                    <span className="scene-group-label">{group.label}</span>
-                    <div className="swatches">
-                      {group.choices.map((c) => (
-                        <button
-                          key={c.id}
-                          className={`swatch ${selections.background === c.id ? 'swatch-on' : ''}`}
-                          onClick={() => selectBackground(c.id)}
-                          title={c.label}
-                        >
-                          <span className="swatch-color" style={{ background: c.swatch }} />
-                          <span className="swatch-label">{c.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))
+                <div className="bg-locked-msg">
+                  Bientôt disponible — matières premium (marbre, bois, cuir, velours).
+                </div>
               )}
             </OptionGroup>
 
-            {/* Mise en scène premium */}
-            <OptionGroup label="Mise en scène premium" sub="Bientôt disponible">
-              <div className="premium-grid">
-                {PREMIUM_STAGING.map((s) => (
-                  <div key={s.id} className="premium-card">
-                    <div className="premium-head">
-                      <span className="premium-label">{s.label}</span>
-                      <span className="premium-tag">{s.tag}</span>
-                    </div>
-                    <span className="premium-desc">{s.desc}</span>
-                    <span className="premium-lock">🔒</span>
-                  </div>
-                ))}
-              </div>
-            </OptionGroup>
-
-            {/* Support */}
-            <OptionGroup label={SUPPORTS.label}>
+            {/* Présentation */}
+            <OptionGroup label={OPTIONS.support.label} defaultLabel={defaultLabel('support')} selectedExists={!!selections.support}>
               <div className="chips">
-                {SUPPORTS.choices.map((c) => (
-                  <Chip
+                {OPTIONS.support.choices.map((c) => (
+                  <button
                     key={c.id}
-                    selected={selections.support === c.id}
-                    onClick={() => selectOption('support', c.id)}
+                    onClick={() => toggleOption('support', c.id)}
+                    className={`chip ${selections.support === c.id ? 'chip-on' : ''}`}
                   >
                     {c.label}
-                  </Chip>
+                  </button>
                 ))}
               </div>
             </OptionGroup>
 
             {/* Éclairage */}
-            <OptionGroup label={LIGHTINGS.label}>
+            <OptionGroup label={OPTIONS.lighting.label} defaultLabel={defaultLabel('lighting')} selectedExists={!!selections.lighting}>
               <div className="chips">
-                {LIGHTINGS.choices.map((c) => (
-                  <Chip
+                {OPTIONS.lighting.choices.map((c) => (
+                  <button
                     key={c.id}
-                    selected={selections.lighting === c.id}
-                    onClick={() => selectOption('lighting', c.id)}
+                    onClick={() => toggleOption('lighting', c.id)}
+                    className={`chip ${selections.lighting === c.id ? 'chip-on' : ''}`}
                   >
                     {c.label}
-                  </Chip>
+                  </button>
                 ))}
               </div>
             </OptionGroup>
 
             {error && <p className="error">{error}</p>}
 
-            <div className="gen-block">
-              {credits < 1 ? (
-                <>
-                  <p className="no-credits">Tu n'as plus de crédits.</p>
-                  <Link href="/buy" className="btn btn-primary btn-block">
-                    ⚡ Acheter des crédits
-                  </Link>
-                </>
-              ) : (
-                <>
-                  <div className="cost-row">
-                    <span className="cost-label">Coût</span>
-                    <span className="cost-value">1 crédit</span>
-                  </div>
-                  <button
-                    className={`btn btn-primary btn-block ${!canGenerate ? 'btn-disabled' : ''}`}
-                    onClick={handleGenerate}
-                    disabled={!canGenerate}
-                  >
-                    {loading ? 'Lancement…' : 'Générer →'}
-                  </button>
-                  <p className="gen-foot">Solde après : {credits - 1} crédit{credits - 1 !== 1 ? 's' : ''}</p>
-                </>
-              )}
+            <div className="pay-block">
+              <div className="pay-row">
+                <span className="pay-label">Coût</span>
+                <span className="pay-amount">1 crédit</span>
+              </div>
+              <button
+                className={`btn btn-primary btn-block ${(!image || loading) ? 'btn-disabled' : ''}`}
+                onClick={handleGenerate}
+                disabled={!image || loading}
+              >
+                {loading ? 'Génération…' : credits < 1 ? 'Acheter des crédits →' : 'Générer ma photo →'}
+              </button>
+              <p className="pay-foot">
+                {credits >= 1 ? `${credits} crédit${credits > 1 ? 's' : ''} disponible${credits > 1 ? 's' : ''} · 1 image HD générée` : 'Tu n\'as plus de crédits'}
+              </p>
             </div>
           </section>
         </div>
       </main>
 
       <style jsx>{`
-        .nav {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding-top: 20px;
-          padding-bottom: 20px;
-          border-bottom: 1px solid var(--border);
-        }
-        .nav-right { display: flex; align-items: center; gap: 12px; }
-        :global(.credits-pill) {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 7px 14px;
-          background: var(--bg-card);
-          border: 1px solid var(--border-strong);
-          border-radius: 999px;
-          transition: all 0.15s;
-        }
-        :global(.credits-pill:hover) {
-          border-color: var(--accent);
-          background: var(--bg-card-hover);
-        }
-        :global(.credits-num) {
-          font-size: 14px;
-          font-weight: 600;
-          color: var(--accent);
-        }
-        :global(.credits-lbl) {
-          font-size: 11px;
-          font-family: var(--font-mono);
-          color: var(--ink-muted);
-          letter-spacing: 0.4px;
-        }
+        .nav { display:flex; align-items:center; justify-content:space-between; padding-top:20px; padding-bottom:20px; border-bottom:1px solid var(--border); }
+        .nav-right { display:flex; align-items:center; gap:18px; }
+        .nav-link { color:var(--ink-muted); transition:color .15s; }
+        .nav-link:hover { color:var(--ink); }
 
-        .app-main { padding-top: 48px; padding-bottom: 80px; }
-        .app-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
-        @media (max-width: 900px) { .app-grid { grid-template-columns: 1fr; } }
+        .credits-pill {
+          display:inline-flex; align-items:baseline; gap:6px;
+          padding:6px 14px;
+          background:var(--bg-card);
+          border:1px solid var(--border-accent);
+          border-radius:999px;
+          transition: all .15s;
+        }
+        .credits-pill:hover { background:var(--bg-card-hover); border-color:var(--accent); }
+        .credits-num { font-size:15px; font-weight:700; color:var(--accent); letter-spacing:-0.01em; }
+        .credits-lbl { font-size:11px; color:var(--ink-faint); font-family:var(--font-mono); letter-spacing:0.4px; }
 
-        .panel {
-          background: var(--bg-card);
-          border: 1px solid var(--border);
-          border-radius: var(--r-lg);
-          padding: 28px;
-        }
+        .app-main { padding-top:48px; padding-bottom:80px; }
+        .app-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; }
+        @media (max-width:900px) { .app-grid { grid-template-columns:1fr; } }
 
-        .panel-head {
-          display: flex;
-          align-items: center;
-          gap: 14px;
-          margin-bottom: 24px;
-          padding-bottom: 20px;
-          border-bottom: 1px solid var(--border);
-        }
-        .panel-num {
-          font-family: var(--font-mono);
-          font-size: 11px;
-          color: var(--accent);
-          letter-spacing: 1.6px;
-        }
-        .panel-title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+        .panel { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--r-lg); padding:28px; }
+        .panel-head { display:flex; align-items:center; gap:14px; margin-bottom:24px; padding-bottom:20px; border-bottom:1px solid var(--border); }
+        .panel-num { font-family:var(--font-mono); font-size:11px; color:var(--accent); letter-spacing:1.6px; }
+        .panel-title { font-size:16px; font-weight:600; letter-spacing:-0.01em; }
 
-        .drop {
-          border: 1.5px dashed var(--border-strong);
-          border-radius: var(--r-md);
-          padding: 56px 20px;
-          text-align: center;
-          cursor: pointer;
-          transition: all 0.15s;
-          background: var(--bg-soft);
-        }
-        .drop:hover { border-color: var(--accent); background: var(--bg-card-hover); }
-        .drop-filled { padding: 12px; border-style: solid; border-color: var(--border); }
-        .drop-img { width: 100%; max-height: 360px; object-fit: contain; border-radius: var(--r-sm); }
-        .drop-icon { color: var(--ink-faint); margin-bottom: 14px; display: flex; justify-content: center; }
-        .drop-text { font-size: 15px; color: var(--ink); margin-bottom: 4px; }
-        .drop-sub { font-size: 12px; color: var(--ink-faint); font-family: var(--font-mono); letter-spacing: 0.5px; }
-        .change-btn { margin-top: 12px; font-size: 13px; color: var(--ink-muted); padding: 6px 0; }
-        .change-btn:hover { color: var(--ink); }
+        .drop { border:1.5px dashed var(--border-strong); border-radius:var(--r-md); padding:56px 20px; text-align:center; cursor:pointer; transition:all .15s; background:var(--bg-soft); }
+        .drop:hover { border-color:var(--accent); background:var(--bg-card-hover); }
+        .drop-filled { padding:12px; border-style:solid; border-color:var(--border); }
+        .drop-img { width:100%; max-height:360px; object-fit:contain; border-radius:var(--r-sm); }
+        .drop-icon { color:var(--ink-faint); margin-bottom:14px; display:flex; justify-content:center; }
+        .drop-text { font-size:15px; color:var(--ink); margin-bottom:4px; }
+        .drop-sub { font-size:12px; color:var(--ink-faint); font-family:var(--font-mono); letter-spacing:0.5px; }
+        .change-btn { margin-top:12px; font-size:13px; color:var(--ink-muted); padding:6px 0; background:none; border:none; cursor:pointer; }
+        .change-btn:hover { color:var(--ink); }
       `}</style>
 
       <style jsx global>{`
-        .opt-group { margin-top: 28px; }
-        .opt-label {
-          font-family: var(--font-mono);
-          font-size: 10px;
-          color: var(--ink-faint);
-          letter-spacing: 1.8px;
-          text-transform: uppercase;
-          display: block;
+        .opt-group { margin-top:24px; }
+        .opt-label-row {
+          display: flex; align-items: baseline; justify-content: space-between;
+          margin-bottom: 12px;
         }
-        .opt-sub { font-size: 12px; color: var(--ink-faint); margin-top: 4px; margin-bottom: 12px; line-height: 1.5; }
-        .opt-label-only { margin-bottom: 12px; }
+        .opt-label { font-family:var(--font-mono); font-size:10px; color:var(--ink-faint); letter-spacing:1.8px; text-transform:uppercase; }
+        .opt-default { font-family:var(--font-mono); font-size:10px; color:var(--ink-faint); letter-spacing:0.4px; }
+        .opt-default-on { color:var(--accent); }
 
-        .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-        .chip {
-          display: inline-flex;
-          align-items: center;
-          padding: 8px 12px;
-          background: var(--bg-soft);
+        .chips { display:flex; flex-wrap:wrap; gap:6px; }
+        .chip { display:inline-flex; align-items:center; padding:8px 12px; background:var(--bg-soft); border:1px solid var(--border); border-radius:var(--r); font-size:13px; color:var(--ink-muted); transition:all .15s; font-family:inherit; cursor:pointer; }
+        .chip:hover { background:var(--bg-card-hover); color:var(--ink); border-color:var(--border-strong); }
+        .chip-on { background:var(--ink); color:var(--bg); border-color:var(--ink); }
+        .chip-on:hover { background:var(--accent); color:var(--bg); border-color:var(--accent); }
+        .chip-icon { margin-right:6px; font-size:14px; }
+
+        /* Tabs pour les fonds */
+        .bg-tabs {
+          display: flex; gap: 4px; margin-bottom: 12px;
+          padding: 3px; background: var(--bg-soft);
           border: 1px solid var(--border);
           border-radius: var(--r);
-          font-size: 13px;
-          color: var(--ink-muted);
-          transition: all 0.15s;
-          font-family: inherit;
         }
-        .chip:hover { background: var(--bg-card-hover); color: var(--ink); border-color: var(--border-strong); }
-        .chip-on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-        .chip-on:hover { background: var(--accent); color: var(--bg); border-color: var(--accent); }
-        .chip-icon { margin-right: 6px; font-size: 14px; }
-
-        .scene-tabs {
-          display: flex; gap: 4px; padding: 4px;
-          background: var(--bg-soft);
-          border: 1px solid var(--border);
-          border-radius: var(--r);
-          margin-bottom: 20px;
-        }
-        .scene-tab {
-          flex: 1; padding: 8px 12px;
-          background: transparent;
-          border: 1px solid transparent;
-          border-radius: var(--r-sm);
-          font-size: 13px; color: var(--ink-muted);
-          font-family: inherit; transition: all 0.15s;
+        .bg-tab {
+          flex: 1; padding: 7px 10px;
+          background: transparent; border: none;
+          border-radius: 4px;
+          font-size: 12px; font-weight: 500;
+          color: var(--ink-muted); font-family: inherit;
+          cursor: pointer; transition: all .15s;
           display: inline-flex; align-items: center; justify-content: center; gap: 6px;
         }
-        .scene-tab:hover:not(.scene-tab-locked):not(.scene-tab-on) { color: var(--ink); background: var(--bg-card-hover); }
-        .scene-tab-on { background: var(--ink); color: var(--bg); font-weight: 500; }
-        .scene-tab-locked { opacity: 0.4; cursor: not-allowed; }
-        .lock-mini { font-size: 10px; opacity: 0.7; }
-
-        .scene-group { margin-bottom: 20px; }
-        .scene-group:last-child { margin-bottom: 0; }
-        .scene-group-label {
-          font-family: var(--font-mono);
-          font-size: 10px; color: var(--accent);
-          letter-spacing: 1.4px; text-transform: uppercase;
-          margin-bottom: 10px; display: block;
+        .bg-tab:hover:not(:disabled) { color: var(--ink); }
+        .bg-tab-on { background: var(--bg-card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+        .bg-tab-locked { opacity: 0.5; cursor: not-allowed; }
+        .bg-tab-badge {
+          font-size: 9px; padding: 1px 5px;
+          background: var(--accent-soft); color: var(--accent);
+          border-radius: 3px; font-family: var(--font-mono); letter-spacing: 0.3px;
         }
-        .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 6px; }
-        .swatch {
-          display: flex; flex-direction: column; align-items: center; gap: 6px;
-          padding: 10px 4px;
+        .bg-locked-msg {
+          padding: 20px;
           background: var(--bg-soft);
-          border: 1px solid var(--border);
+          border: 1px dashed var(--border);
           border-radius: var(--r);
-          transition: all 0.15s; font-family: inherit;
+          font-size: 13px; color: var(--ink-faint);
+          text-align: center;
         }
-        .swatch:hover { background: var(--bg-card-hover); border-color: var(--border-strong); }
-        .swatch-on { border-color: var(--accent); background: var(--bg-card-hover); box-shadow: 0 0 0 1px var(--border-accent); }
-        .swatch-color {
-          width: 32px; height: 32px;
-          border-radius: 50%;
-          border: 1px solid rgba(0,0,0,0.2);
-          display: block; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
-        }
-        .swatch-label {
-          font-size: 10px; color: var(--ink-muted);
-          text-align: center; line-height: 1.2;
-          font-family: var(--font-mono); letter-spacing: 0.3px;
-        }
-        .swatch-on .swatch-label { color: var(--accent); }
 
-        .locked-block { padding: 24px; background: var(--bg-soft); border: 1px dashed var(--border); border-radius: var(--r); text-align: center; }
-        .locked-text { font-size: 13px; color: var(--ink-faint); font-family: var(--font-mono); letter-spacing: 0.3px; }
+        .swatches { display:grid; grid-template-columns:repeat(auto-fill, minmax(72px, 1fr)); gap:6px; }
+        .swatch { display:flex; flex-direction:column; align-items:center; gap:6px; padding:10px 4px; background:var(--bg-soft); border:1px solid var(--border); border-radius:var(--r); transition:all .15s; font-family:inherit; cursor:pointer; }
+        .swatch:hover { background:var(--bg-card-hover); border-color:var(--border-strong); }
+        .swatch-on { border-color:var(--accent); background:var(--bg-card-hover); box-shadow:0 0 0 1px var(--accent); }
+        .swatch-color { width:32px; height:32px; border-radius:50%; border:1px solid rgba(0,0,0,0.2); display:block; box-shadow:inset 0 0 0 1px rgba(255,255,255,0.05); }
+        .swatch-label { font-size:10px; color:var(--ink-muted); text-align:center; line-height:1.2; font-family:var(--font-mono); letter-spacing:0.3px; }
+        .swatch-on .swatch-label { color:var(--accent); }
 
-        .premium-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-        @media (max-width: 720px) { .premium-grid { grid-template-columns: 1fr; } }
-        .premium-card {
-          position: relative; padding: 12px 14px;
-          background: var(--bg-soft);
-          border: 1px solid var(--border);
-          border-radius: var(--r);
-          opacity: 0.55;
-          display: flex; flex-direction: column; gap: 4px;
-        }
-        .premium-head { display: flex; align-items: center; gap: 6px; }
-        .premium-label { font-size: 13px; color: var(--ink); font-weight: 500; }
-        .premium-tag {
-          font-family: var(--font-mono); font-size: 9px;
-          color: var(--accent); background: var(--accent-soft);
-          padding: 2px 6px; border-radius: 3px; letter-spacing: 0.6px;
-        }
-        .premium-desc { font-size: 11px; color: var(--ink-faint); line-height: 1.4; }
-        .premium-lock { position: absolute; top: 12px; right: 12px; font-size: 11px; opacity: 0.6; }
+        .error { color:var(--danger); font-size:13px; margin-top:20px; padding:10px 12px; background:rgba(225,91,91,.08); border-radius:var(--r); border:1px solid rgba(225,91,91,.2); }
 
-        .error {
-          color: var(--danger); font-size: 13px;
-          margin-top: 20px; padding: 10px 12px;
-          background: rgba(225, 91, 91, 0.08);
-          border-radius: var(--r); border: 1px solid rgba(225, 91, 91, 0.2);
-        }
-        .gen-block { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
-        .cost-row { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px; }
-        .cost-label {
-          font-family: var(--font-mono); font-size: 11px;
-          color: var(--ink-faint); letter-spacing: 1.6px; text-transform: uppercase;
-        }
-        .cost-value { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
-        .gen-foot {
-          margin-top: 12px; text-align: center;
-          font-size: 11px; color: var(--ink-faint);
-          font-family: var(--font-mono); letter-spacing: 0.4px;
-        }
-        .no-credits { font-size: 14px; color: var(--ink-muted); text-align: center; margin-bottom: 16px; }
+        .pay-block { margin-top:32px; padding-top:24px; border-top:1px solid var(--border); }
+        .pay-row { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:16px; }
+        .pay-label { font-family:var(--font-mono); font-size:11px; color:var(--ink-faint); letter-spacing:1.6px; text-transform:uppercase; }
+        .pay-amount { font-size:24px; font-weight:600; letter-spacing:-0.02em; }
+        .pay-foot { margin-top:12px; text-align:center; font-size:11px; color:var(--ink-faint); font-family:var(--font-mono); letter-spacing:0.4px; }
+        .btn-disabled { opacity:0.4; cursor:not-allowed; pointer-events:none; }
       `}</style>
     </>
   );
 }
 
-function OptionGroup({ label, sub, children }) {
+// ===== Sous-composant : groupe d'options avec affichage du défaut =====
+function OptionGroup({ label, defaultLabel, selectedExists, children }) {
   return (
     <div className="opt-group">
-      <span className={`opt-label ${!sub ? 'opt-label-only' : ''}`}>{label}</span>
-      {sub && <p className="opt-sub">{sub}</p>}
+      <div className="opt-label-row">
+        <span className="opt-label">{label}</span>
+        <span className={`opt-default ${selectedExists ? 'opt-default-on' : ''}`}>
+          {selectedExists ? '✓ sélectionné' : `défaut : ${defaultLabel}`}
+        </span>
+      </div>
       {children}
     </div>
-  );
-}
-
-function Chip({ selected, onClick, children }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`chip ${selected ? 'chip-on' : ''}`}
-    >
-      {children}
-    </button>
   );
 }
