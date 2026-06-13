@@ -1,8 +1,29 @@
 import Head from 'next/head';
 import Link from 'next/link';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { supabase } from '../lib/supabase';
 
 export default function Home() {
+  // Session + crédits (pour la nav de l'accueil)
+  const [session, setSession] = useState(null);
+  const [credits, setCredits] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!active) return;
+      setSession(session);
+      if (session) {
+        try {
+          const res = await fetch('/api/me', { headers: { Authorization: `Bearer ${session.access_token}` } });
+          const d = await res.json();
+          if (active) setCredits(d.credits ?? 0);
+        } catch (_) { /* ignore */ }
+      }
+    });
+    return () => { active = false; };
+  }, []);
+
   // Animation reveal au scroll
   useEffect(() => {
     const els = document.querySelectorAll('.reveal');
@@ -42,9 +63,23 @@ export default function Home() {
             <span className="logo-text">Photo Studio</span>
           </Link>
           <div className="nav-links">
-            <a href="#how">Comment ça marche</a>
-            <a href="#pricing">Tarifs</a>
-            <Link href="/app" className="nav-cta">Commencer →</Link>
+            <a href="#how" className="nav-anchor">Comment ça marche</a>
+            <a href="#pricing" className="nav-anchor">Tarifs</a>
+            {session ? (
+              <>
+                <Link href="/account" className="nav-credits" title="Mes crédits">
+                  <span className="nav-credits-num">{credits ?? '·'}</span>
+                  <span className="nav-credits-lbl">crédits</span>
+                </Link>
+                <Link href="/account" className="nav-account">Mon Compte</Link>
+                <Link href="/app" className="nav-cta">Créer →</Link>
+              </>
+            ) : (
+              <>
+                <Link href="/login" className="nav-account">Se connecter</Link>
+                <Link href="/app" className="nav-cta">Commencer →</Link>
+              </>
+            )}
           </div>
         </nav>
 
@@ -233,11 +268,29 @@ export default function Home() {
         .nav-links {
           display: flex;
           align-items: center;
-          gap: 28px;
+          gap: 20px;
           font-size: 13px;
           color: var(--ink-muted);
         }
         .nav-links a:hover { color: var(--ink); }
+        .nav-links :global(.nav-account) {
+          color: var(--ink-muted);
+          transition: color 0.15s;
+        }
+        .nav-links :global(.nav-account:hover) { color: var(--ink); }
+        .nav-links :global(.nav-credits) {
+          display: inline-flex;
+          align-items: baseline;
+          gap: 5px;
+          padding: 6px 12px;
+          border-radius: 999px;
+          background: var(--bg-card);
+          border: 1px solid var(--border-accent);
+          transition: border-color 0.15s;
+        }
+        .nav-links :global(.nav-credits:hover) { border-color: var(--accent); }
+        .nav-links :global(.nav-credits-num) { font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: -0.01em; }
+        .nav-links :global(.nav-credits-lbl) { font-size: 10px; color: var(--ink-faint); font-family: var(--font-mono); letter-spacing: 0.4px; }
         .nav-links :global(.nav-cta) {
           background: var(--ink);
           color: var(--bg);
@@ -365,7 +418,8 @@ export default function Home() {
 
         @media (max-width: 720px) {
           .hero { padding-top: 48px; padding-bottom: 80px; }
-          .nav-links a:not(.nav-cta) { display: none; }
+          .nav-links { gap: 12px; }
+          .nav-links .nav-anchor { display: none; }
           .ba-grid { grid-template-columns: 1fr; }
         }
 
