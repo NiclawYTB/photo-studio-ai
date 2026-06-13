@@ -100,7 +100,7 @@ export default function AppPage() {
   const selectCategory = (catId) => {
     if (catId === selections.category) return;
     const firstTab = OPTIONS.background.byCategory[catId].tabs[0].id;
-    setSelections((prev) => ({ ...prev, category: catId, productType: null, background: null }));
+    setSelections((prev) => ({ ...prev, category: catId, productType: null, background: null, support: null }));
     setBgTab(firstTab);
   };
 
@@ -150,6 +150,8 @@ export default function AppPage() {
   const productChoices = OPTIONS.productType.choicesByCategory[cat];
   const bgTabs = OPTIONS.background.byCategory[cat].tabs;
   const bgChoices = OPTIONS.background.choices.filter((c) => c.category === cat && c.tab === bgTab);
+  const supportChoices = OPTIONS.support.choicesByCategory[cat];
+  const supportDefaultLabel = supportChoices.find((c) => c.id === OPTIONS.support.defaultByCategory[cat])?.label || '';
 
   const productDefaultLabel = () => {
     const defId = OPTIONS.productType.defaultByCategory[cat];
@@ -297,10 +299,10 @@ export default function AppPage() {
               </div>
             </OptionGroup>
 
-            {/* Présentation */}
-            <OptionGroup label={OPTIONS.support.label} defaultLabel={defaultLabel('support')} selectedExists={!!selections.support}>
+            {/* Présentation — dépend de la catégorie */}
+            <OptionGroup label={OPTIONS.support.label} defaultLabel={supportDefaultLabel} selectedExists={!!selections.support}>
               <div className="chips">
-                {OPTIONS.support.choices.map((c) => (
+                {supportChoices.map((c) => (
                   <button
                     key={c.id}
                     onClick={() => toggleOption('support', c.id)}
