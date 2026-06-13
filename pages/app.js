@@ -50,15 +50,16 @@ export default function AppPage() {
   const [credits, setCredits] = useState(0);
   const [authLoading, setAuthLoading] = useState(true);
 
-  // Sélections — null = pas sélectionné (le serveur prendra le défaut)
+  // Sélections — category a toujours une valeur ; le reste null = défaut serveur
   const [selections, setSelections] = useState({
+    category:    'vetement',
     productType: null,
     background:  null,
     support:     null,
     lighting:    null,
   });
 
-  // Tab actif pour les fonds
+  // Onglet de fond actif (dépend de la catégorie)
   const [bgTab, setBgTab] = useState('rug');
 
   useEffect(() => {
@@ -95,7 +96,15 @@ export default function AppPage() {
     handleFile(e.dataTransfer.files[0]);
   };
 
-  // TOGGLE : si on reclique sur le choix actif, on le désélectionne (revient au défaut)
+  // Changer de catégorie : reset du type + du fond, et bascule sur le 1er onglet
+  const selectCategory = (catId) => {
+    if (catId === selections.category) return;
+    const firstTab = OPTIONS.background.byCategory[catId].tabs[0].id;
+    setSelections((prev) => ({ ...prev, category: catId, productType: null, background: null }));
+    setBgTab(firstTab);
+  };
+
+  // TOGGLE : reclique sur le choix actif = désélection (revient au défaut)
   const toggleOption = (category, id) => {
     setSelections((prev) => ({
       ...prev,
@@ -136,13 +145,18 @@ export default function AppPage() {
     );
   }
 
-  const activeCategories = OPTIONS.background.categories;
-  const bgChoices = OPTIONS.background.choices.filter((c) => c.category === bgTab);
-  const activeBgCat = activeCategories.find((c) => c.id === bgTab);
+  // ----- Dérivés depuis la catégorie active -----
+  const cat = selections.category;
+  const productChoices = OPTIONS.productType.choicesByCategory[cat];
+  const bgTabs = OPTIONS.background.byCategory[cat].tabs;
+  const bgChoices = OPTIONS.background.choices.filter((c) => c.category === cat && c.tab === bgTab);
 
-  // Pour afficher les "défauts" dans l'UI quand rien n'est sélectionné
-  const defaultLabel = (cat) => {
-    const def = OPTIONS[cat].choices.find((c) => c.id === OPTIONS[cat].defaultId);
+  const productDefaultLabel = () => {
+    const defId = OPTIONS.productType.defaultByCategory[cat];
+    return productChoices.find((c) => c.id === defId)?.label || '';
+  };
+  const defaultLabel = (key) => {
+    const def = OPTIONS[key].choices.find((c) => c.id === OPTIONS[key].defaultId);
     return def?.label || '';
   };
 
@@ -214,14 +228,14 @@ export default function AppPage() {
               <h2 className="panel-title">Configure le studio</h2>
             </header>
 
-            {/* Type de produit */}
-            <OptionGroup label={OPTIONS.productType.label} defaultLabel={defaultLabel('productType')} selectedExists={!!selections.productType}>
+            {/* Catégorie */}
+            <OptionGroup label={OPTIONS.category.label} hint={cat === 'vetement' ? 'Vêtement' : 'Électronique'} selectedExists>
               <div className="chips">
-                {OPTIONS.productType.choices.map((c) => (
+                {OPTIONS.category.choices.map((c) => (
                   <button
                     key={c.id}
-                    onClick={() => toggleOption('productType', c.id)}
-                    className={`chip ${selections.productType === c.id ? 'chip-on' : ''}`}
+                    onClick={() => selectCategory(c.id)}
+                    className={`chip ${selections.category === c.id ? 'chip-on' : ''}`}
                   >
                     <span className="chip-icon">{c.icon}</span> {c.label}
                   </button>
@@ -229,41 +243,56 @@ export default function AppPage() {
               </div>
             </OptionGroup>
 
-            {/* Fond — avec tabs de catégories */}
-            <OptionGroup label={OPTIONS.background.label} defaultLabel={defaultLabel('background')} selectedExists={!!selections.background}>
+            {/* Type de produit — menu déroulant dépendant de la catégorie */}
+            <OptionGroup
+              label={OPTIONS.productType.label}
+              defaultLabel={productDefaultLabel()}
+              selectedExists={!!selections.productType}
+            >
+              <div className="select-wrap">
+                <select
+                  className="select"
+                  value={selections.productType || ''}
+                  onChange={(e) => setSelections((p) => ({ ...p, productType: e.target.value || null }))}
+                >
+                  <option value="">
+                    {cat === 'vetement' ? '— Choisis un vêtement —' : '— Choisis un appareil —'}
+                  </option>
+                  {productChoices.map((c) => (
+                    <option key={c.id} value={c.id}>{c.icon} {c.label}</option>
+                  ))}
+                </select>
+                <span className="select-arrow">▾</span>
+              </div>
+            </OptionGroup>
+
+            {/* Fond — onglets dépendants de la catégorie */}
+            <OptionGroup label={OPTIONS.background.label} defaultLabel={bgTabs[0].label} selectedExists={!!selections.background}>
               <div className="bg-tabs">
-                {activeCategories.map((cat) => (
+                {bgTabs.map((t) => (
                   <button
-                    key={cat.id}
-                    className={`bg-tab ${bgTab === cat.id ? 'bg-tab-on' : ''} ${!cat.active ? 'bg-tab-locked' : ''}`}
-                    onClick={() => cat.active && setBgTab(cat.id)}
-                    disabled={!cat.active}
+                    key={t.id}
+                    className={`bg-tab ${bgTab === t.id ? 'bg-tab-on' : ''}`}
+                    onClick={() => setBgTab(t.id)}
                   >
-                    {cat.label}
-                    {cat.badge && <span className="bg-tab-badge">{cat.badge}</span>}
+                    {t.label}
                   </button>
                 ))}
               </div>
 
-              {activeBgCat?.active ? (
-                <div className="swatches">
-                  {bgChoices.map((c) => (
-                    <button
-                      key={c.id}
-                      className={`swatch ${selections.background === c.id ? 'swatch-on' : ''}`}
-                      onClick={() => toggleOption('background', c.id)}
-                      title={c.label}
-                    >
-                      <span className="swatch-color" style={{ background: c.swatch }} />
-                      <span className="swatch-label">{c.label}</span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="bg-locked-msg">
-                  Bientôt disponible — matières premium (marbre, bois, cuir, velours).
-                </div>
-              )}
+              <div className="swatches">
+                {bgChoices.map((c) => (
+                  <button
+                    key={c.id}
+                    className={`swatch ${selections.background === c.id ? 'swatch-on' : ''}`}
+                    onClick={() => toggleOption('background', c.id)}
+                    title={c.label}
+                  >
+                    <span className="swatch-color" style={{ background: c.swatch }} />
+                    <span className="swatch-label">{c.label}</span>
+                  </button>
+                ))}
+              </div>
             </OptionGroup>
 
             {/* Présentation */}
@@ -373,6 +402,24 @@ export default function AppPage() {
         .chip-on:hover { background:var(--accent); color:var(--bg); border-color:var(--accent); }
         .chip-icon { margin-right:6px; font-size:14px; }
 
+        /* Menu déroulant (sous-type) */
+        .select-wrap { position:relative; }
+        .select {
+          width:100%; appearance:none; -webkit-appearance:none; -moz-appearance:none;
+          padding:12px 38px 12px 14px;
+          background:var(--bg-soft); border:1px solid var(--border-strong);
+          border-radius:var(--r-md); color:var(--ink);
+          font-size:14px; font-family:inherit; cursor:pointer;
+          transition:border-color .15s;
+        }
+        .select:hover { border-color:var(--ink-faint); }
+        .select:focus { outline:none; border-color:var(--accent); }
+        .select option { background:var(--bg-card); color:var(--ink); }
+        .select-arrow {
+          position:absolute; right:14px; top:50%; transform:translateY(-50%);
+          pointer-events:none; color:var(--ink-faint); font-size:12px;
+        }
+
         /* Tabs pour les fonds */
         .bg-tabs {
           display: flex; gap: 4px; margin-bottom: 12px;
@@ -389,22 +436,8 @@ export default function AppPage() {
           cursor: pointer; transition: all .15s;
           display: inline-flex; align-items: center; justify-content: center; gap: 6px;
         }
-        .bg-tab:hover:not(:disabled) { color: var(--ink); }
+        .bg-tab:hover { color: var(--ink); }
         .bg-tab-on { background: var(--bg-card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
-        .bg-tab-locked { opacity: 0.5; cursor: not-allowed; }
-        .bg-tab-badge {
-          font-size: 9px; padding: 1px 5px;
-          background: var(--accent-soft); color: var(--accent);
-          border-radius: 3px; font-family: var(--font-mono); letter-spacing: 0.3px;
-        }
-        .bg-locked-msg {
-          padding: 20px;
-          background: var(--bg-soft);
-          border: 1px dashed var(--border);
-          border-radius: var(--r);
-          font-size: 13px; color: var(--ink-faint);
-          text-align: center;
-        }
 
         .swatches { display:grid; grid-template-columns:repeat(auto-fill, minmax(72px, 1fr)); gap:6px; }
         .swatch { display:flex; flex-direction:column; align-items:center; gap:6px; padding:10px 4px; background:var(--bg-soft); border:1px solid var(--border); border-radius:var(--r); transition:all .15s; font-family:inherit; cursor:pointer; }
@@ -428,13 +461,13 @@ export default function AppPage() {
 }
 
 // ===== Sous-composant : groupe d'options avec affichage du défaut =====
-function OptionGroup({ label, defaultLabel, selectedExists, children }) {
+function OptionGroup({ label, defaultLabel, hint, selectedExists, children }) {
   return (
     <div className="opt-group">
       <div className="opt-label-row">
         <span className="opt-label">{label}</span>
         <span className={`opt-default ${selectedExists ? 'opt-default-on' : ''}`}>
-          {selectedExists ? '✓ sélectionné' : `défaut : ${defaultLabel}`}
+          {hint ? hint : selectedExists ? '✓ sélectionné' : `défaut : ${defaultLabel}`}
         </span>
       </div>
       {children}
