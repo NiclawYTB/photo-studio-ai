@@ -5,11 +5,43 @@ import Link from 'next/link';
 import { supabase } from '../lib/supabase';
 import { OPTIONS } from '../lib/promptOptions';
 
+// Compresse + redimensionne l'image cote client avant l'envoi a /api/generate.
+// Evite de depasser la limite 15mb et accelere Replicate : une photo de tel
+// fait 4-11 Mo en base64 brut, ici on tombe a ~150-350 Ko.
+function compressImage(file, maxSize = 1280, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Lecture du fichier impossible'));
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Image illisible'));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width >= height && width > maxSize) {
+          height = Math.round((height * maxSize) / width);
+          width = maxSize;
+        } else if (height > maxSize) {
+          width = Math.round((width * maxSize) / height);
+          height = maxSize;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function AppPage() {
   const router = useRouter();
   const [image, setImage] = useState(null);
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
   const inputRef = useRef();
 
@@ -41,14 +73,21 @@ export default function AppPage() {
     })();
   }, []);
 
-  const handleFile = (file) => {
+  const handleFile = async (file) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setPreview(e.target.result);
-      setImage(e.target.result);
-    };
-    reader.readAsDataURL(file);
+    setError('');
+    setProcessing(true);
+    try {
+      const optimized = await compressImage(file);
+      setPreview(optimized);
+      setImage(optimized);
+    } catch (err) {
+      setError(err.message);
+      setPreview(null);
+      setImage(null);
+    } finally {
+      setProcessing(false);
+    }
   };
 
   const handleDrop = (e) => {
@@ -117,7 +156,7 @@ export default function AppPage() {
           <span className="logo-text">Photo Studio</span>
         </Link>
         <div className="nav-right">
-          <Link href="/gallery" className="step-mono nav-link">galerie</Link>
+          <Link href="/account" className="step-mono nav-link">galerie</Link>
           <Link href="/account" className="credits-pill">
             <span className="credits-num">{credits}</span>
             <span className="credits-lbl">crédit{credits > 1 ? 's' : ''}</span>
@@ -136,11 +175,13 @@ export default function AppPage() {
 
             <div
               className={`drop ${preview ? 'drop-filled' : ''}`}
-              onClick={() => inputRef.current.click()}
+              onClick={() => !processing && inputRef.current.click()}
               onDrop={handleDrop}
               onDragOver={(e) => e.preventDefault()}
             >
-              {preview ? (
+              {processing ? (
+                <p className="drop-text">Optimisation de la photo…</p>
+              ) : preview ? (
                 <img src={preview} alt="aperçu" className="drop-img" />
               ) : (
                 <>
@@ -263,9 +304,9 @@ export default function AppPage() {
                 <span className="pay-amount">1 crédit</span>
               </div>
               <button
-                className={`btn btn-primary btn-block ${(!image || loading) ? 'btn-disabled' : ''}`}
+                className={`btn btn-primary btn-block ${(!image || loading || processing) ? 'btn-disabled' : ''}`}
                 onClick={handleGenerate}
-                disabled={!image || loading}
+                disabled={!image || loading || processing}
               >
                 {loading ? 'Génération…' : credits < 1 ? 'Acheter des crédits →' : 'Générer ma photo →'}
               </button>
