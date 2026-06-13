@@ -284,12 +284,14 @@ export default function AppPage() {
                 {bgChoices.map((c) => (
                   <button
                     key={c.id}
-                    className={`swatch ${selections.background === c.id ? 'swatch-on' : ''}`}
-                    onClick={() => toggleOption('background', c.id)}
-                    title={c.label}
+                    className={`swatch ${selections.background === c.id ? 'swatch-on' : ''} ${c.locked ? 'swatch-locked' : ''}`}
+                    onClick={() => !c.locked && toggleOption('background', c.id)}
+                    disabled={c.locked}
+                    title={c.locked ? `${c.label} — bientôt disponible` : c.label}
                   >
                     <span className="swatch-color" style={{ background: c.swatch }} />
                     <span className="swatch-label">{c.label}</span>
+                    {c.locked && <span className="swatch-badge">Bientôt</span>}
                   </button>
                 ))}
               </div>
@@ -446,6 +448,10 @@ export default function AppPage() {
         .swatch-color { width:32px; height:32px; border-radius:50%; border:1px solid rgba(0,0,0,0.2); display:block; box-shadow:inset 0 0 0 1px rgba(255,255,255,0.05); }
         .swatch-label { font-size:10px; color:var(--ink-muted); text-align:center; line-height:1.2; font-family:var(--font-mono); letter-spacing:0.3px; }
         .swatch-on .swatch-label { color:var(--accent); }
+        .swatch { position:relative; }
+        .swatch-locked { opacity:0.45; cursor:not-allowed; filter:grayscale(0.7); }
+        .swatch-locked:hover { background:var(--bg-soft); border-color:var(--border); box-shadow:none; }
+        .swatch-badge { position:absolute; top:4px; right:4px; font-size:8px; padding:1px 4px; background:var(--bg-card); color:var(--ink-faint); border:1px solid var(--border); border-radius:3px; font-family:var(--font-mono); letter-spacing:0.3px; }
 
         .error { color:var(--danger); font-size:13px; margin-top:20px; padding:10px 12px; background:rgba(225,91,91,.08); border-radius:var(--r); border:1px solid rgba(225,91,91,.2); }
 
