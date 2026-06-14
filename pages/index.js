@@ -258,12 +258,10 @@ export default function Home() {
         </div>
         <style jsx>{`
           .faq { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
-          .faq-item { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-md); padding: 2px 20px; }
-          .faq-q { cursor: pointer; padding: 16px 0; font-size: 15px; font-weight: 500; color: var(--ink); list-style: none; }
-          .faq-q::-webkit-details-marker { display: none; }
-          .faq-q::after { content: '+'; float: right; color: var(--accent); font-size: 18px; line-height: 1; }
-          details[open] .faq-q::after { content: '\\2212'; }
-          .faq-a { font-size: 14px; color: var(--ink-muted); line-height: 1.65; padding: 0 0 18px; margin: 0; }
+          .faq-item { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-md); padding: 6px 20px; }
+          .faq-q { cursor: pointer; padding: 14px 0; font-size: 15px; font-weight: 500; color: var(--ink); }
+          .faq-q:hover { color: var(--accent); }
+          .faq-a { font-size: 14px; color: var(--ink-muted); line-height: 1.65; padding: 0 0 16px; margin: 0; }
         `}</style>
       </section>
 
