@@ -45,12 +45,32 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>Photo Studio — Tes photos. En studio.</title>
-        <meta name="description" content="Transforme tes photos en packshots pros en 30 secondes. 1€ par photo, sans abonnement." />
-        <meta property="og:title" content="Photo Studio" />
-        <meta property="og:description" content="Tes photos. Sauf qu'on dirait qu'elles sortent d'un studio." />
+        <title>Photo Studio — Photos produit studio par IA pour Vinted, eBay & Leboncoin</title>
+        <meta name="description" content="Transforme une photo de smartphone en packshot studio professionnel en 30 secondes. Vêtements et électronique. 1€ = 5 photos, sans abonnement." />
+        <meta name="keywords" content="photo produit IA, packshot studio, photo Vinted, photo Leboncoin, fond studio IA, vendre en ligne, photo vêtement IA, photo électronique" />
+        <meta name="robots" content="index, follow, max-image-preview:large" />
+        <link rel="canonical" href="https://photo-studio-ai-black.vercel.app/" />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Photo Studio" />
+        <meta property="og:title" content="Photo Studio — Tes photos. En studio." />
+        <meta property="og:description" content="Transforme tes photos en packshots pros en 30 secondes. 1€ = 5 photos, sans abonnement." />
+        <meta property="og:url" content="https://photo-studio-ai-black.vercel.app/" />
+        <meta property="og:locale" content="fr_FR" />
+        <meta name="twitter:card" content="summary_large_image" />
         <meta name="theme-color" content="#0B0A09" />
         <link rel="icon" href="/favicon.ico" />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'SoftwareApplication',
+            name: 'Photo Studio',
+            applicationCategory: 'MultimediaApplication',
+            operatingSystem: 'Web',
+            description: 'Transforme une photo de smartphone en packshot studio professionnel par IA, pour Vinted, eBay et Leboncoin.',
+            offers: { '@type': 'Offer', price: '1.00', priceCurrency: 'EUR', description: '1 € = 5 photos générées' },
+          }) }}
+        />
       </Head>
 
       {/* HERO BLOCK */}
@@ -214,6 +234,39 @@ export default function Home() {
         </div>
       </section>
 
+      {/* FAQ */}
+      <section className="section section-soft">
+        <div className="container">
+          <div className="section-head reveal">
+            <span className="eyebrow">FAQ</span>
+            <h2 className="section-title">Questions fréquentes</h2>
+          </div>
+          <div className="faq reveal">
+            {[
+              { q: "Ça marche avec n'importe quelle photo ?", a: 'Oui — smartphone, scan, capture d\'écran. Plus la photo est nette et bien éclairée, meilleur est le rendu.' },
+              { q: 'Mon produit est-il bien préservé ?', a: 'Oui : l\'IA garde la matière, les couleurs, les motifs et les logos à l\'identique. Seuls le fond et l\'éclairage changent.' },
+              { q: 'Combien ça coûte ?', a: '1 € = 5 crédits, soit 5 photos générées. Pas d\'abonnement : tu paies seulement ce que tu utilises.' },
+              { q: 'Pour quels produits ?', a: 'Vêtements (t-shirt, pull, veste, chaussures…) et électronique (console, manette, smartphone, jeux vidéo…).' },
+              { q: 'Les images ont-elles un filigrane ?', a: 'Non. Tu télécharges tes photos en HD, sans filigrane, prêtes à publier sur Vinted, eBay ou Leboncoin.' },
+            ].map((item, i) => (
+              <details key={i} className="faq-item">
+                <summary className="faq-q">{item.q}</summary>
+                <p className="faq-a">{item.a}</p>
+              </details>
+            ))}
+          </div>
+        </div>
+        <style jsx>{`
+          .faq { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+          .faq-item { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-md); padding: 2px 20px; }
+          .faq-q { cursor: pointer; padding: 16px 0; font-size: 15px; font-weight: 500; color: var(--ink); list-style: none; }
+          .faq-q::-webkit-details-marker { display: none; }
+          .faq-q::after { content: '+'; float: right; color: var(--accent); font-size: 18px; line-height: 1; }
+          details[open] .faq-q::after { content: '\\2212'; }
+          .faq-a { font-size: 14px; color: var(--ink-muted); line-height: 1.65; padding: 0 0 18px; margin: 0; }
+        `}</style>
+      </section>
+
       {/* FINAL CTA */}
       <section className="section">
         <div className="container">
@@ -231,7 +284,12 @@ export default function Home() {
             <span className="logo-mark" />
             <span className="logo-text">Photo Studio</span>
           </div>
-          <span className="footer-meta">© {new Date().getFullYear()} · Paiement sécurisé Stripe</span>
+          <div className="footer-links">
+            <Link href="/mentions-legales">Mentions légales</Link>
+            <Link href="/cgv">CGV</Link>
+            <Link href="/confidentialite">Confidentialité</Link>
+          </div>
+          <span className="footer-meta">© {new Date().getFullYear()} Photo Studio · Paiement sécurisé Stripe</span>
         </div>
       </footer>
 
@@ -638,6 +696,9 @@ export default function Home() {
           flex-wrap: wrap;
           gap: 12px;
         }
+        .footer-links { display: flex; gap: 18px; flex-wrap: wrap; }
+        .footer-links :global(a) { font-size: 13px; color: var(--ink-muted); transition: color 0.15s; }
+        .footer-links :global(a:hover) { color: var(--accent); }
         .footer-meta {
           font-family: var(--font-mono);
           font-size: 11px;
