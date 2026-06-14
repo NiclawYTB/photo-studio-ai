@@ -388,20 +388,20 @@ export default function Home() {
         }
 
         .hero-title {
-          font-size: clamp(40px, 6vw, 64px);
-          line-height: 1.05;
-          font-weight: 600;
-          letter-spacing: -0.035em;
+          font-size: clamp(46px, 6.6vw, 74px);
+          line-height: 1.04;
+          font-weight: 500;
+          letter-spacing: -0.02em;
           margin-bottom: 28px;
-          max-width: 18ch;
+          max-width: 16ch;
         }
         .muted { color: var(--ink-muted); font-weight: 400; }
 
         .hero-sub {
-          font-size: 17px;
-          line-height: 1.55;
+          font-size: 18px;
+          line-height: 1.6;
           color: var(--ink-muted);
-          max-width: 50ch;
+          max-width: 48ch;
           margin-bottom: 40px;
         }
 
@@ -470,7 +470,7 @@ export default function Home() {
           letter-spacing: 0.5px;
         }
         .ba-img-before .ba-img-label { color: var(--ink-faint); }
-        .ba-img-after .ba-img-label { color: var(--bg); font-weight: 500; }
+        .ba-img-after .ba-img-label { color: #1C1A17; font-weight: 500; }
 
         @media (max-width: 720px) {
           .hero { padding-top: 48px; padding-bottom: 80px; }
@@ -500,10 +500,10 @@ export default function Home() {
           margin-bottom: 16px;
         }
         .section-title {
-          font-size: clamp(28px, 4vw, 40px);
+          font-size: clamp(32px, 4.5vw, 46px);
           line-height: 1.1;
-          letter-spacing: -0.03em;
-          font-weight: 600;
+          letter-spacing: -0.015em;
+          font-weight: 500;
         }
 
         /* Steps */
