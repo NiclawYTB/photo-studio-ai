@@ -52,26 +52,29 @@ export default async function handler(req, res) {
       return res.status(200).json({ received: true, warning: 'metadata absente' });
     }
 
-    // Ajouter les crédits au profil (read-then-write — à durcir avec une RPC
-    // PostgreSQL plus tard si on scale, pour l'instant OK)
-    const { data: profile, error: readErr } = await supabaseAdmin
-      .from('profiles')
-      .select('credits')
-      .eq('id', userId)
-      .single();
+    // 1. IDEMPOTENCE — Stripe ré-émet ses webhooks : on enregistre la session.
+    //    Si elle existe déjà (clé primaire), c'est qu'on a DÉJÀ crédité → on sort.
+    const { error: dupErr } = await supabaseAdmin
+      .from('processed_payments')
+      .insert({ session_id: session.id });
 
-    if (readErr) {
-      console.error('Webhook read profile failed:', readErr);
-      return res.status(500).json({ error: 'Profil introuvable' });
+    if (dupErr) {
+      if (dupErr.code === '23505') {
+        // Doublon = déjà traité, tout va bien.
+        return res.json({ received: true, duplicate: true });
+      }
+      console.error('Webhook idempotency insert failed:', dupErr);
+      return res.status(500).json({ error: 'Erreur idempotence' });
     }
 
-    const { error: updateErr } = await supabaseAdmin
-      .from('profiles')
-      .update({ credits: profile.credits + creditsToAdd })
-      .eq('id', userId);
+    // 2. Ajout ATOMIQUE des crédits
+    const { error: addErr } = await supabaseAdmin
+      .rpc('add_credits', { uid: userId, amount: creditsToAdd });
 
-    if (updateErr) {
-      console.error('Webhook credit update failed:', updateErr);
+    if (addErr) {
+      console.error('Webhook credit add failed:', addErr);
+      // On retire la trace d'idempotence pour qu'un retry Stripe puisse réussir.
+      await supabaseAdmin.from('processed_payments').delete().eq('session_id', session.id);
       return res.status(500).json({ error: 'Crédit non ajouté' });
     }
 
