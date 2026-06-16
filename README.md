@@ -1,7 +1,7 @@
 # Photo Studio AI
 
 Mini SaaS : transforme une photo de jeu en photo produit studio pour 1€ (3 images generees).
-
+ 
 ## Stack
 - Next.js (frontend + API routes)
 - Stripe (paiement 1€)
